@@ -13,6 +13,7 @@
     <a-page-header :title="pageTitle" :sub-title="welcomeText">
       <template #extra>
         <a-space>
+          <KnowledgeGraphButton />
           <a-button type="primary" :disabled="isVisitor" @click="goToProfile">
             个人资料
           </a-button>
@@ -87,6 +88,7 @@
 </template>
 
 <script setup>
+import KnowledgeGraphButton from '@/components/common/KnowledgeGraphButton.vue'
 import { computed, onMounted, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { useUserStore } from '@/store'
