@@ -1,0 +1,42 @@
+{
+  "name": "el_road",
+  "version": "1.0.0",
+  "description": "{**以下是 Gitee 平台说明，您可以替换此简介**\r Gitee 是 OSCHINA 推出的基于 Git 的代码托管平台（同时支持 SVN）。专为开发者提供稳定、高效、安全的云端软件开发协作平台\r 无论是个人、团队、或是企业，都能够用 Gitee 实现代码托管、项目管理、协作开发。企业项目请看 [https://gitee.com/enterprises](https://gitee.com/enterprises)}",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:example": "vite build --mode example",
+    "build:prod": "vite build --mode production",
+    "preview": "vite preview",
+    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs --fix --ignore-pattern .gitignore",
+    "format": "prettier --write src/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/zhangshenta/el_road.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@vitejs/plugin-vue": "^6.0.6",
+    "ant-design-vue": "^4.2.6",
+    "dompurify": "^3.4.5",
+    "echarts": "^6.1.0",
+    "html2pdf.js": "^0.14.0",
+    "json-bigint": "^1.0.0",
+    "marked": "^18.0.4",
+    "pinia": "^3.0.4",
+    "vite": "^8.0.11",
+    "vue": "^3.5.34",
+    "vue-router": "^4.6.4",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@vue/eslint-config-standard": "^9.0.1",
+    "eslint": "^10.3.0",
+    "eslint-plugin-vue": "^10.9.1"
+  }
+}
