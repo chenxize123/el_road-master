@@ -706,20 +706,21 @@ const getQuestionStem = (record) => {
 
 // ========== AI 智能出题辅助函数 ==========
 // 将知识点数据转换为 Tree 组件格式
-function transformKnowledgeTreeData(nodes) {
+function transformKnowledgeTreeData(nodes, prefix = 'point') {
   if (!nodes || !Array.isArray(nodes)) return []
 
-  return nodes.map(node => {
+  return nodes.map((node, index) => {
+    const key = `${prefix}-${index}`
     const isPoint = node.type === 'point'
     const transformed = {
-      key: node.id,
+      key,
       title: node.label,
       disabled: !isPoint, // 只有知识点可选
       isLeaf: isPoint
     }
 
     if (node.children && node.children.length > 0) {
-      transformed.children = transformKnowledgeTreeData(node.children)
+      transformed.children = transformKnowledgeTreeData(node.children, key)
     }
 
     return transformed
@@ -736,6 +737,8 @@ async function loadKnowledgeTree() {
       const res = await courseService.request(`/course/point/repo_id?repo_id=${repoId}`)
       if (res.code === 200 && res.data?.knowledge_point) {
         // 保存完整的知识点信息（包括 label 和 content）
+        checkedKeys.value = []
+        knowledgePointsMap.value = {}
         saveKnowledgePointsData(res.data.knowledge_point)
         knowledgeTreeData.value = transformKnowledgeTreeData(res.data.knowledge_point)
       } else {
@@ -756,20 +759,19 @@ async function loadKnowledgeTree() {
 }
 
 // 保存知识点详细信息到映射表
-function saveKnowledgePointsData(nodes, prefix = '') {
-  nodes.forEach(node => {
+function saveKnowledgePointsData(nodes, prefix = 'point') {
+  nodes.forEach((node, index) => {
+    const fullKey = `${prefix}-${index}`
     if (node.type === 'point') {
-      const fullKey = node.id
       knowledgePointsMap.value[fullKey] = {
-        id: node.id,
+        id: node.id ?? fullKey,
         label: node.label,
         content: node.content || ''
       }
     }
 
     if (node.children && node.children.length > 0) {
-      const chapterPrefix = node.label.replace(/[^\w]/g, '_')
-      saveKnowledgePointsData(node.children, chapterPrefix)
+      saveKnowledgePointsData(node.children, fullKey)
     }
   })
 }
