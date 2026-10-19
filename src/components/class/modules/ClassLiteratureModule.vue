@@ -114,7 +114,7 @@
       <template #description>
         <div style="display: flex; align-items: center; gap: 8px;">
           <a-spin size="small" />
-          <span>AI正在分析您的研究主题并生成规划，请<strong>不要关闭或切换页面</strong>，这可能需要1-3分钟时间...</span>
+          <span>正在调查中，已等待 {{ formatSearchElapsed(searchElapsedSeconds) }}。检索可能需要数分钟，请保持页面打开并等待接口返回。</span>
         </div>
       </template>
     </a-alert>
@@ -147,7 +147,7 @@
           @click="handleSearch"
         >
           <template #icon><SearchOutlined /></template>
-          {{ searching ? '正在生成中，请稍候...' : '检索文献' }}
+          {{ searching ? `调查中 ${formatSearchElapsed(searchElapsedSeconds)}` : '检索文献' }}
         </a-button>
         <a-button
           v-if="researchList.length > 0"
@@ -208,6 +208,7 @@ const userId = computed(() => userStore.userInfo?.id || '')
 const researchTopic = ref('')
 const resultContent = ref('')
 const searching = ref(false)
+const searchElapsedSeconds = ref(0)
 const loadingList = ref(false)
 const loadingDetail = ref(false)
 const error = ref('')
@@ -220,6 +221,13 @@ const currentResearchTopic = ref('')
 // 本地课程ID状态
 const localCourseId = ref(null)
 const loadingCourse = ref(false)
+let searchElapsedTimer = null
+
+const formatSearchElapsed = (seconds) => {
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = seconds % 60
+  return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`
+}
 
 // 根据班级ID获取课程信息
 const fetchCourseByClassId = async () => {
@@ -413,6 +421,11 @@ const handleSearch = async () => {
   console.log('✅ 最终使用的 courseId:', courseId)
 
   searching.value = true
+  searchElapsedSeconds.value = 0
+  clearInterval(searchElapsedTimer)
+  searchElapsedTimer = setInterval(() => {
+    searchElapsedSeconds.value += 1
+  }, 1000)
   error.value = ''
   try {
     const res = await searchLiteratureApi(courseId, researchTopic.value.trim())
@@ -452,6 +465,8 @@ const handleSearch = async () => {
     message.error(error.value)
   } finally {
     searching.value = false
+    clearInterval(searchElapsedTimer)
+    searchElapsedTimer = null
   }
 }
 
@@ -527,6 +542,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  clearInterval(searchElapsedTimer)
 })
 </script>
 

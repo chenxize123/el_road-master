@@ -80,7 +80,7 @@ export function updateQuestionBank(id, data) {
 
 // 逻辑删除题库
 export function deleteQuestionBank(id) {
-  return courseService.request(`/repo/${id}`, {
+  return courseService.request(`/repo/?repo_id=${encodeURIComponent(id)}`, {
     method: 'DELETE'
   })
 }

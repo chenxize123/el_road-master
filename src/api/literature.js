@@ -19,7 +19,7 @@ export async function searchLiteratureApi(courseId, researchTopic) {
       course_id: courseId,
       research_topic: researchTopic
     }),
-    timeout: 600000
+    timeout: 0
   })
 }
 

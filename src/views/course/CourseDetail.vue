@@ -51,6 +51,8 @@
             :course-id="route.params.id"
             :course-info="courseInfo"
             :loading="loading"
+            :editable="canEditBasicInfo"
+            @updated="handleBasicInfoUpdated"
           />
         </template>
 
@@ -141,6 +143,9 @@ import {
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const canEditBasicInfo = computed(() =>
+  ['admin', 'teacher'].includes(userStore.userInfo?.user_type)
+)
 
 // 状态数据
 const courseInfo = ref(null)
@@ -182,6 +187,12 @@ const goBack = () => {
 // 封面上传成功后刷新课程信息
 const handleCoverUploaded = () => {
   fetchCourseDetail()
+}
+
+const handleBasicInfoUpdated = updates => {
+  if (courseInfo.value) {
+    Object.assign(courseInfo.value, updates)
+  }
 }
 
 const handleEdit = () => {

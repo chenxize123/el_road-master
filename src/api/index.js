@@ -8,8 +8,8 @@ class ApiService {
     const token = localStorage.getItem('token')
 
     const controller = new AbortController()
-    const timeout = options.timeout || TIMEOUT
-    const timer = setTimeout(() => controller.abort(), timeout)
+    const timeout = options.timeout ?? TIMEOUT
+    const timer = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null
 
     try {
       const headers = {}
@@ -59,7 +59,7 @@ class ApiService {
 
       return data
     } finally {
-      clearTimeout(timer)
+      if (timer) clearTimeout(timer)
     }
   }
 

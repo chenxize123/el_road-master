@@ -248,7 +248,7 @@ Located in: `src/api/questionBank.js`
 - **`updateQuestionBank(id, data)`** → `PUT /repo/{id}`
   - Updates question bank
 
-- **`deleteQuestionBank(id)`** → `DELETE /repo/{id}`
+- **`deleteQuestionBank(id)`** → `DELETE /repo/?repo_id={id}`
   - Deletes question bank (logical delete)
 
 ### Question Management

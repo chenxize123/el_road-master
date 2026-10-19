@@ -53,7 +53,6 @@
           class="feature-card"
         >
           <h3>{{ item.title }}</h3>
-          <p>{{ item.desc }}</p>
         </div>
       </section>
     </main>
@@ -94,34 +93,14 @@ onMounted(() => {
 
 
 const features = [
-  {
-    title: '大模型知识点抽取',
-    desc: '基于课程大纲与配套教材文本，利用大模型自动解析、梳理并抽取课程核心知识点，构建结构化知识体系'
-  },
-  {
-    title: '自动生成课程视频',
-    desc: '依托已提取的课程知识点或课件，自动生成配套授课讲稿，再驱动生成对应的课程教学视频素材'
-  },
-  {
-    title: '大模型出题、阅卷与报告生成',
-    desc: '依托课程知识点自动完成出题与组卷；学生作答后系统自动阅卷判分，智能生成个人与班级整体学情分析报告'
-  },
-  {
-    title: '大模型辅助课程实验研究',
-    desc: '依托大模型能力，对学生提交的实验报告及代码等进行智能辅助审阅，完成内容核查、要点评估与自动评分工作'
-  },
-  {
-    title: '课程赋能课题研究',
-    desc: '借助大模型为课程教学提供智能支撑能力，辅助学生开展课程相关课题检索、资料梳理与课题研究工作'
-  },
-  {
-    title: '就业推荐与咨询指导',
-    desc: '依托学生学习数据构建个人学情画像，实现岗位智能匹配推荐，同步提供针对性就业咨询指导服务'
-  },
-  {
-    title: '讨论区与助教答疑',
-    desc: '支持教师发布课程讨论话题，学生可在线交流互动；支持 @子路助教，由助教针对疑问进行答疑解惑'
-  }
+  { title: '大模型知识点抽取' },
+  { title: '自动生成课程视频' },
+  { title: '大模型出题、阅卷与报告生成' },
+  { title: '大模型辅助实验评价' },
+  { title: '课程赋能课题研究' },
+  { title: '就业推荐与咨询指导' },
+  { title: '讨论区与助教答疑' },
+  { title: '专业知识图谱' }
 ]
 
 /**
@@ -190,7 +169,8 @@ const handleGuestPreview = async () => {
   position: relative;
   z-index: 2;
   min-height: 100vh;
-  padding: 42px 5vw 36px;
+  box-sizing: border-box;
+  padding: 32px 4.7vw 26px;
   display: flex;
   flex-direction: column;
 }
@@ -199,16 +179,16 @@ const handleGuestPreview = async () => {
   font-size: 32px;
   font-weight: 700;
   letter-spacing: 4px;
-  margin-bottom: 56px;
+  margin-bottom: 48px;
 }
 
 .hero-content {
-  max-width: 760px;
+  max-width: 680px;
 }
 
 .welcome {
-  margin: 0 0 24px;
-  font-size: 22px;
+  margin: 0 0 20px;
+  font-size: 16px;
   line-height: 1.25;
   font-weight: 600;
   letter-spacing: 0.5px;
@@ -216,8 +196,9 @@ const handleGuestPreview = async () => {
 
 .title {
   margin: 0;
-  font-size: clamp(56px, 6vw, 96px);
-  line-height: 1.12;
+  max-width: 650px;
+  font-size: clamp(56px, 5.2vw, 82px);
+  line-height: 1;
   font-weight: 500;
   letter-spacing: 2px;
 }
@@ -225,20 +206,20 @@ const handleGuestPreview = async () => {
 .actions {
   display: flex;
   align-items: center;
-  gap: 34px;
-  margin-top: 34px;
+  gap: 24px;
+  margin-top: 24px;
   flex-wrap: wrap;
 }
 
 .pill-button {
-  min-width: 132px;
-  height: 58px;
-  padding: 0 30px;
+  min-width: 98px;
+  height: 42px;
+  padding: 0 22px;
   border: none;
   border-radius: 999px;
   background: #000;
   color: #fff;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -258,7 +239,7 @@ const handleGuestPreview = async () => {
 
 .manual-link {
   color: #e9f6ff;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 600;
   padding: 0;
 }
@@ -270,21 +251,25 @@ const handleGuestPreview = async () => {
 .feature-list {
   margin-top: auto;
   display: grid;
-  grid-template-columns: repeat(4, minmax(180px, 1fr));
-  gap: 36px;
-  padding-top: 80px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 26px;
+  padding-top: 32px;
 }
 
 .feature-card {
-  min-height: 126px;
-  padding: 22px 26px;
-  border-radius: 36px;
+  min-height: 94px;
+  padding: 18px 22px;
+  border-radius: 28px;
   background: rgba(17, 31, 48, 0.68);
   box-shadow:
     0 0 18px rgba(255, 255, 255, 0.58),
     inset 0 0 20px rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(8px);
   transition: all 0.25s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
 .feature-card:hover {
@@ -295,29 +280,22 @@ const handleGuestPreview = async () => {
 }
 
 .feature-card h3 {
-  margin: 0 0 12px;
-  color: #fff;
-  font-size: 22px;
-  font-weight: 700;
-}
-
-.feature-card p {
   margin: 0;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 16px;
-  line-height: 1.45;
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
 }
 
 @media screen and (max-width: 1024px) {
   .feature-list {
-    grid-template-columns: repeat(4, minmax(160px, 1fr));
-    gap: 24px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
   }
 }
 
 @media screen and (max-width: 900px) {
   .feature-list {
-    grid-template-columns: repeat(3, minmax(160px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 20px;
   }
 }
@@ -355,12 +333,12 @@ const handleGuestPreview = async () => {
 
   .title {
     font-size: clamp(44px, 15vw, 64px);
-    line-height: 1.12;
+    line-height: 1.05;
   }
 
   .actions {
-    margin-top: auto;
-    padding-bottom: 14vh;
+    margin-top: 24px;
+    padding-bottom: 0;
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 16px;
@@ -379,24 +357,16 @@ const handleGuestPreview = async () => {
 
   .feature-list {
     min-height: auto;
-    padding: 56px 0 40px;
+    padding: 48px 0 0;
     margin-top: 40px;
     grid-template-columns: repeat(2, 1fr);
     gap: 16px;
   }
 
   .feature-card {
-    min-height: 112px;
-    border-radius: 28px;
-    padding: 22px 24px;
-  }
-
-  .feature-card h3 {
-    font-size: 21px;
-  }
-
-  .feature-card p {
-    font-size: 15px;
+    min-height: 92px;
+    border-radius: 24px;
+    padding: 18px 16px;
   }
 }
 
@@ -411,9 +381,9 @@ const handleGuestPreview = async () => {
 
   .feature-list {
     grid-template-columns: 1fr;
-    padding: 72px 0 40px;
+    padding: 48px 0 0;
     margin-top: 0;
-    min-height: 100vh;
+    min-height: auto;
   }
 }
 </style>

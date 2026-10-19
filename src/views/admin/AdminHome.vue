@@ -24,32 +24,6 @@
     <DashboardBanner />
     <a-tabs v-model:activeKey="activeTab" class="role-tabs">
 
-      <a-tab-pane key="classes" tab="班级管理">
-        <ClassList
-          user-role="admin"
-          :class-list="classList"
-          :loading="loading"
-          title="班级管理"
-          show-create-button
-          create-button-text="新建班级"
-          action-button-text="进入班级"
-          :show-teacher="true"
-          :show-time-info="true"
-          :show-pagination="true"
-          :current-page="pagination.current"
-          :page-size="pagination.pageSize"
-          :total="pagination.total"
-          :pagination-config="pagination"
-          responsive-page-size
-          show-delete-button
-          @enter-class="enterClass"
-          @delete-class="handleDeleteClass"
-          @create-class="() => createClassVisible = true"
-          @page-change="handleTableChange"
-          @page-size-change="handleClassPageSizeChange"
-        />
-      </a-tab-pane>
-
       <a-tab-pane key="courses" tab="课程管理">
         <CourseList
           user-role="admin"
@@ -79,6 +53,32 @@
           v-model:open="createCourseVisible"
           user-role="admin"
           @success="handleCreateCourseSuccess"
+        />
+      </a-tab-pane>
+
+      <a-tab-pane key="classes" tab="班级管理">
+        <ClassList
+          user-role="admin"
+          :class-list="classList"
+          :loading="loading"
+          title="班级管理"
+          show-create-button
+          create-button-text="新建班级"
+          action-button-text="进入班级"
+          :show-teacher="true"
+          :show-time-info="true"
+          :show-pagination="true"
+          :current-page="pagination.current"
+          :page-size="pagination.pageSize"
+          :total="pagination.total"
+          :pagination-config="pagination"
+          responsive-page-size
+          show-delete-button
+          @enter-class="enterClass"
+          @delete-class="handleDeleteClass"
+          @create-class="() => createClassVisible = true"
+          @page-change="handleTableChange"
+          @page-size-change="handleClassPageSizeChange"
         />
       </a-tab-pane>
 
@@ -121,7 +121,7 @@ import PermissionManagement from '@/components/admin/PermissionManagement.vue'
 const userStore = useUserStore()
 const router = useRouter()
 
-const activeTab = ref('classes')
+const activeTab = ref('courses')
 const loading = ref(false)
 const createClassVisible = ref(false)
 const classList = ref([])

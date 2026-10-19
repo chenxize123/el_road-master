@@ -239,6 +239,16 @@ function resetExtractState() {
   extractStatusType.value = 'info'
 }
 
+function clearStaleExtractFailure(knowledgePoints) {
+  if (!Array.isArray(knowledgePoints) || knowledgePoints.length === 0 || extractStatusType.value !== 'error') {
+    return
+  }
+
+  resetExtractState()
+  const storageKey = getExtractStorageKey()
+  if (storageKey) localStorage.removeItem(storageKey)
+}
+
 function cloneTree(nodes) {
   return nodes.map(node => ({
     ...node,
@@ -491,6 +501,7 @@ async function fetchData() {
       if (response.data.knowledge_point && Array.isArray(response.data.knowledge_point)) {
         treeData.value = ensureTreeIds(response.data.knowledge_point)
         expandedKeys.value = treeData.value.map(node => node.id)
+        clearStaleExtractFailure(response.data.knowledge_point)
       } else {
         treeData.value = []
       }

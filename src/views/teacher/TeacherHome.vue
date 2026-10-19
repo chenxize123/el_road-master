@@ -24,23 +24,6 @@
     <DashboardBanner />
     <a-tabs v-model:activeKey="activeTab" class="role-tabs">
 
-      <a-tab-pane key="classes" tab="班级列表">
-        <ClassList
-          user-role="teacher"
-          :class-list="classList"
-          :loading="loading"
-          title="我负责的班级"
-          show-create-button
-          create-button-text="新建班级"
-          action-button-text="进入班级"
-          :show-teacher="false"
-          show-delete-button
-          @enter-class="enterClass"
-          @delete-class="handleDeleteClass"
-          @create-class="() => createClassVisible = true"
-        />
-      </a-tab-pane>
-
       <a-tab-pane key="courses" tab="课程列表">
         <CourseList
           :user-role="courseListRole"
@@ -77,6 +60,23 @@
           @success="handleCreateCourseSuccess"
         />
       </a-tab-pane>
+
+      <a-tab-pane key="classes" tab="班级列表">
+        <ClassList
+          user-role="teacher"
+          :class-list="classList"
+          :loading="loading"
+          title="我负责的班级"
+          show-create-button
+          create-button-text="新建班级"
+          action-button-text="进入班级"
+          :show-teacher="false"
+          show-delete-button
+          @enter-class="enterClass"
+          @delete-class="handleDeleteClass"
+          @create-class="() => createClassVisible = true"
+        />
+      </a-tab-pane>
     </a-tabs>
     <CreateClassModal
       v-model:open="createClassVisible"
@@ -106,7 +106,7 @@ import LogoutButton from '@/components/common/LogoutButton.vue'
 const userStore = useUserStore()
 const router = useRouter()
 
-const activeTab = ref(userStore.userInfo?.user_type === 'visitor' ? 'courses' : 'classes')
+const activeTab = ref('courses')
 const loading = ref(false)
 const createClassVisible = ref(false)
 const classList = ref([])

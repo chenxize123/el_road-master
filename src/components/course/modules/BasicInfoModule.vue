@@ -37,7 +37,7 @@
                 :showUploadList="false"
                 :beforeUpload="beforeUpload"
                 :customRequest="customUpload"
-                :disabled="uploading"
+                :disabled="uploading || !editable"
                 class="cover-uploader"
               >
                 <div class="cover-upload-area">
@@ -77,7 +77,7 @@
           <a-form-item label="课程名称" required>
             <a-input
               v-model:value="formData.title"
-              disabled
+              :disabled="!editable || saving"
               placeholder="请输入课程名称"
               :maxlength="100"
               show-count
@@ -88,7 +88,7 @@
           <a-form-item label="课程描述">
             <a-textarea
               v-model:value="formData.description"
-              disabled
+              :disabled="!editable || saving"
               placeholder="请输入课程描述"
               :rows="4"
               :maxlength="500"
@@ -109,7 +109,7 @@
           <a-form-item label="学时">
             <a-input-number
               v-model:value="formData.class_hour"
-              disabled
+              :disabled="!editable || saving"
               :min="0"
               :max="9999"
               placeholder="请输入学时"
@@ -118,8 +118,7 @@
           </a-form-item>
 
 
-<!-- 按钮区域 
-          <a-form-item>
+          <a-form-item v-if="editable">
             <div class="button-group">
               <a-button @click="handleCancel" :disabled="saving">
                 取消
@@ -133,7 +132,6 @@
               </a-button>
             </div>
           </a-form-item>
--->
         </a-form>
       </a-card>
     </template>
@@ -155,8 +153,13 @@ const props = defineProps({
   courseId: {
     type: [String, Number],
     required: true
+  },
+  editable: {
+    type: Boolean,
+    default: false
   }
 })
+const emit = defineEmits(['updated'])
 
 const loading = ref(false)
 const saving = ref(false)
@@ -322,6 +325,11 @@ const handleSave = async () => {
         courseInfo.value.description = formData.value.description
         courseInfo.value.class_hour = formData.value.class_hour
       }
+      emit('updated', {
+        title: formData.value.title,
+        description: formData.value.description,
+        class_hour: formData.value.class_hour
+      })
     } else {
       message.error(res.message || '修改失败')
     }
@@ -386,7 +394,7 @@ onMounted(() => {
 
 .cover-uploader {
   display: block;
-  cursor: pointer;
+  cursor: v-bind("editable ? 'pointer' : 'default'");
 }
 
 .cover-upload-area {
