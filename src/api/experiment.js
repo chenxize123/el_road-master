@@ -9,6 +9,9 @@ export function createExperiment(data) {
     class_id: normalizeId(data.class_id),
     title: data.title,
     explanation: data.explanation,
+    explanation_file: data.explanation_file || null,
+    explanation_file_name: data.explanation_file_name || null,
+    question_config: data.question_config ?? null,
     score: Number(data.score || 0),
     start_time: data.start_time,
     end_time: data.end_time
@@ -24,6 +27,9 @@ export function updateExperiment(data) {
     id: normalizeId(data.id),
     title: data.title,
     explanation: data.explanation,
+    explanation_file: data.explanation_file || null,
+    explanation_file_name: data.explanation_file_name || null,
+    question_config: data.question_config ?? null,
     score: Number(data.score || 0),
     start_time: data.start_time,
     end_time: data.end_time
@@ -47,7 +53,9 @@ export function getExperimentsByClassId(classId) {
 export function createExperimentResult(data) {
   return api.post('/experiment/result/', {
     experiment_id: normalizeId(data.experiment_id),
-    code: data.code
+    code: data.code,
+    code_file: data.code_file || null,
+    code_file_name: data.code_file_name || null
   })
 }
 

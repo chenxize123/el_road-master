@@ -19,9 +19,14 @@
     <div class="table-container">
       <a-table
         :columns="columns"
-        :data-source="dataList"
+        :data-source="paginatedData"
         :loading="loading"
-        :pagination="pagination"
+        :pagination="{
+          ...pagination,
+          onChange: handleTablePageChange,
+          showSizeChanger: false,
+          pageSizeOptions: ['10']
+        }"
         row-key="id"
         :scroll="{ x: 800 }"
       >
@@ -114,6 +119,20 @@ const dataList = ref([])
 const modalVisible = ref(false)
 const editingRecord = ref(null)
 
+const paginatedData = computed(() => {
+  const { current, pageSize } = pagination.value
+  const start = (current - 1) * pageSize
+  return dataList.value.slice(start, start + pageSize)
+})
+
+const handleTablePageChange = (page, pageSize) => {
+  pagination.value = {
+    ...pagination.value,
+    current: page,
+    pageSize
+  }
+}
+
 // 表单数据
 const formData = ref({
   title: '',
@@ -188,6 +207,7 @@ const fetchDataList = async () => {
     if (res.code === 200) {
       dataList.value = Array.isArray(res.data) ? res.data : []
       pagination.value.total = dataList.value.length
+      pagination.value.current = 1
     } else {
       message.error(res.message || '获取题库列表失败')
     }

@@ -15,6 +15,7 @@ This document provides a comprehensive overview of all backend API methods avail
 9. [Exam Paper APIs](#exam-paper-apis)
 10. [Student Exam APIs](#student-exam-apis)
 11. [Paper Detail APIs](#paper-detail-apis)
+12. [Experiment Attachment APIs](#experiment-attachment-apis)
 
 ---
 
@@ -366,6 +367,31 @@ Located in: `src/api/paperDetail.js`
 
 - **`getPaperQuestions(paperId)`** → `GET /question/paper_id?paper_id={paperId}`
   - Gets questions in a paper
+
+---
+
+## Experiment Attachment APIs
+
+Located in: `src/api/file.js`
+
+The frontend uses the eight experiment attachment routes below. Upload requests use `multipart/form-data`; the API service leaves the multipart boundary to the browser.
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `POST` | `/experiment/file/upload` | Upload teacher's experiment explanation; form fields: `experiment_id`, `file` |
+| `GET` | `/experiment/file/list?experiment_id={id}` | List explanation attachments |
+| `GET` | `/experiment/file/download?object_name={object_name}` | Get a temporary URL as a string in `data` |
+| `DELETE` | `/experiment/file/delete?object_name={object_name}&experiment_id={id}` | Delete an explanation attachment |
+| `POST` | `/experiment/result/file/upload` | Upload student's code/report; form fields: `result_id`, `file` |
+| `GET` | `/experiment/result/file/list?result_id={id}` | List submission attachments |
+| `GET` | `/experiment/result/file/download?object_name={object_name}` | Get a temporary URL as a string in `data` |
+| `DELETE` | `/experiment/result/file/delete?object_name={object_name}&result_id={id}` | Delete a submission attachment |
+
+Upload responses contain `{ data: { object_name, file_name } }`; list responses contain `{ data: [{ object_name, file_name, size }] }`. Download responses contain `{ data: "https://...signed-url..." }`. Delete responses contain `{ data: { id: object_name } }`.
+
+Teacher experiments use `explanation` for text mode or `explanation_file` and `explanation_file_name` for attachment mode. Student submissions use `code` for text mode or `code_file` and `code_file_name` for file mode. The create experiment and create result routes must return the new record ID in `data.id` (or the corresponding `experiment_id` / `experiment_result_id`) so uploads can be associated with that record.
+
+The frontend accepts PDF, Word, Excel, PowerPoint, and TXT files up to 512MB each; the backend and reverse proxy must allow the same maximum upload size. Students need permission to list and download experiment attachments for classes they belong to, while result attachment access should be limited to the submitting student and authorized class teachers/admins.
 
 ---
 

@@ -92,12 +92,27 @@
       <a-card class="question-card">
         <div class="question-header">
           <span class="question-number">第 {{ currentIndex + 1 }} 题 / 共 {{ questionList.length }} 题</span>
-          <a-tag color="blue">简答题</a-tag>
+          <a-tag :color="getQuestionTypeColor(currentQuestion)">{{ getQuestionLabel(currentQuestion) }}</a-tag>
         </div>
 
         <div class="question-stem">{{ getQuestionText(currentQuestion) }}</div>
 
-        <div class="question-options">
+        <div v-if="getQuestionType(currentQuestion) === 'single_choice'" class="question-options">
+          <a-radio-group v-model:value="answers[currentIndex]" :disabled="isQuestionAnswered" class="options-group">
+            <a-radio v-for="(option, optIndex) in getQuestionOptions(currentQuestion)" :key="optIndex" :value="option">
+              {{ option }}
+            </a-radio>
+          </a-radio-group>
+        </div>
+
+        <div v-else-if="getQuestionType(currentQuestion) === 'true_or_false'" class="question-options">
+          <a-radio-group v-model:value="answers[currentIndex]" :disabled="isQuestionAnswered" class="options-group">
+            <a-radio :value="true">正确</a-radio>
+            <a-radio :value="false">错误</a-radio>
+          </a-radio-group>
+        </div>
+
+        <div v-else class="question-options">
           <a-textarea
             v-model:value="answers[currentIndex]"
             placeholder="请输入你的回答"
@@ -114,6 +129,10 @@
             <span class="eval-score" :class="{ 'score-good': getQuestionScore(currentQuestion) >= 60, 'score-bad': getQuestionScore(currentQuestion) < 60 }">
               {{ getQuestionScore(currentQuestion) }}
             </span>
+          </div>
+          <div v-if="getQuestionReferenceAnswer(currentQuestion) || getQuestionAnswer(currentQuestion)" class="eval-reason">
+            <div class="eval-reason-label">正确答案</div>
+            <div class="eval-reason-text">{{ formatAnswerForDisplay(getQuestionReferenceAnswer(currentQuestion) || getQuestionAnswer(currentQuestion)) }}</div>
           </div>
           <div v-if="getQuestionReason(currentQuestion)" class="eval-reason">
             <div class="eval-reason-label">AI 评价</div>
@@ -183,7 +202,7 @@ const viewportWidth = ref(typeof window === 'undefined' ? 1200 : window.innerWid
 const currentQuestion = computed(() => questionList.value[currentIndex.value] || {})
 const answeredCount = computed(() => questionList.value.filter((_item, index) => hasAnswer(answers.value[index])).length)
 const descriptionColumns = computed(() => viewportWidth.value < 768 ? 1 : 3)
-const isQuestionAnswered = computed(() => resultDetail.value?.question_state === '已回答')
+const isQuestionAnswered = computed(() => resultDetail.value?.question_state === '已回答' || resultDetail.value?.question_state === '已批改')
 const totalQuestionScore = computed(() => {
   return questionList.value.reduce((sum, q) => sum + getQuestionScore(q), 0)
 })
@@ -198,23 +217,88 @@ function normalizeQuestionPayload(value) {
     }
   }
   if (Array.isArray(value)) {
-    return { question_list: value }
+    return { questions: value }
   }
   return value
 }
 
 function getQuestions(question) {
-  if (Array.isArray(question?.question_list)) return question.question_list
   if (Array.isArray(question?.questions)) return question.questions
+  if (Array.isArray(question?.question_list)) return question.question_list
   if (Array.isArray(question?.list)) return question.list
   if (question && Object.keys(question).length > 0) return [question]
   return []
 }
 
+function getQuestionType(question = {}) {
+  const value = question?.type || question?.question_type || question?.type_ || 'short_answer'
+  return String(value || 'short_answer')
+}
+
+function getQuestionLabel(question = {}) {
+  const questionType = getQuestionType(question)
+  const map = {
+    single_choice: '单选题',
+    true_or_false: '判断题',
+    short_answer: '简答题'
+  }
+  return map[questionType] || '简答题'
+}
+
+function getQuestionTypeColor(question = {}) {
+  const questionType = getQuestionType(question)
+  const map = {
+    single_choice: 'blue',
+    true_or_false: 'orange',
+    short_answer: 'green'
+  }
+  return map[questionType] || 'blue'
+}
+
+function getQuestionOptions(question = {}) {
+  if (Array.isArray(question?.choose)) return question.choose
+  if (Array.isArray(question?.options)) return question.options
+  return []
+}
+
+function getQuestionReferenceAnswer(question = {}) {
+  return question?.reference_answer ?? question?.correct_answer ?? question?.answer ?? ''
+}
+
+function getQuestionAnswer(question = {}) {
+  return question?.answer ?? question?.user_response ?? question?.response ?? ''
+}
+
+function formatAnswerForDisplay(value) {
+  if (typeof value === 'boolean') return value ? '正确' : '错误'
+  if (Array.isArray(value)) return value.join(', ')
+  if (value === undefined || value === null || value === '') return '—'
+  return String(value)
+}
+
+function normalizeAnswerValue(answer, type) {
+  if (type === 'true_or_false') {
+    return answer === true || answer === 'true' || answer === 'True' || answer === '正确'
+  }
+  if (type === 'single_choice') {
+    return answer === undefined || answer === null ? '' : String(answer)
+  }
+  if (Array.isArray(answer)) {
+    return answer.join(',')
+  }
+  return answer === undefined || answer === null ? '' : String(answer)
+}
+
 function initAnswers() {
   const initialAnswers = {}
   questionList.value.forEach((question, index) => {
-    initialAnswers[index] = question?.answer || question?.user_response || ''
+    const type = getQuestionType(question)
+    const sourceValue = getQuestionAnswer(question)
+    if (type === 'true_or_false') {
+      initialAnswers[index] = sourceValue === true || sourceValue === 'true' || sourceValue === 'True' || sourceValue === '正确'
+      return
+    }
+    initialAnswers[index] = sourceValue ?? ''
   })
   answers.value = initialAnswers
 }
@@ -239,13 +323,13 @@ function getQuestionText(question) {
 }
 
 function getQuestionScore(question) {
-  const val = question?.score
+  const val = question?.score ?? question?.question_score ?? question?.grade ?? question?.total_score
   if (val === undefined || val === null || val === '') return 0
   return Number.isFinite(Number(val)) ? Number(val) : 0
 }
 
 function getQuestionReason(question) {
-  return question?.reason || ''
+  return question?.reason || question?.analysis || ''
 }
 
 function formatScore(value) {
@@ -256,10 +340,22 @@ function formatScore(value) {
 function buildAnsweredQuestion() {
   return {
     ...questionObject.value,
-    question_list: questionList.value.map((question, index) => ({
+    questions: questionList.value.map((question, index) => ({
       ...question,
-      answer: answers.value[index]
+      type: getQuestionType(question),
+      question: getQuestionText(question),
+      choose: getQuestionOptions(question),
+      reference_answer: getQuestionReferenceAnswer(question) || '',
+      analysis: getQuestionReason(question) || '',
+      answer: normalizeAnswerValue(answers.value[index], getQuestionType(question))
     }))
+  }
+}
+
+function prepareSubmitData() {
+  return {
+    experiment_result_id: resultId.value,
+    question: buildAnsweredQuestion()
   }
 }
 
@@ -313,10 +409,7 @@ async function submitAnswers() {
 
   submitting.value = true
   try {
-    const res = await submitExperimentAnalysis({
-      experiment_result_id: resultId.value,
-      question: buildAnsweredQuestion()
-    })
+    const res = await submitExperimentAnalysis(prepareSubmitData())
     const detail = extractResponseData(res)
     if (detail?.id || detail?.question || detail?.question_state) {
       applyResultDetail(detail)

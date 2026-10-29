@@ -151,9 +151,80 @@
         <a-form-item label="实验标题" name="title" required>
           <a-input v-model:value="formData.title" placeholder="请输入实验标题" :maxlength="100" show-count />
         </a-form-item>
-        <a-form-item label="实验说明" name="explanation">
-          <a-textarea v-model:value="formData.explanation" placeholder="请输入实验说明" :rows="4" :maxlength="2000" show-count />
+        <a-form-item label="实验说明">
+          <a-radio-group v-model:value="explanationMode" style="margin-bottom: 12px" @change="handleExplanationModeChange">
+            <a-radio value="text">输入说明文本</a-radio>
+            <a-radio value="file">上传说明文档</a-radio>
+          </a-radio-group>
+          <a-textarea
+            v-if="explanationMode === 'text'"
+            v-model:value="formData.explanation"
+            placeholder="请输入实验说明"
+            :rows="5"
+            :maxlength="2000"
+            show-count
+          />
+          <div v-else class="file-upload-area">
+            <div v-if="formData.explanation_file" class="existing-file">
+              <span>📎 {{ formData.explanation_file_name || formData.explanation_file }}</span>
+              <a-popconfirm
+                title="保存实验后移除当前附件？"
+                ok-text="移除"
+                cancel-text="取消"
+                @confirm="handleDeleteExperimentAttachment"
+              >
+                <a-button size="small" type="link" danger>删除</a-button>
+              </a-popconfirm>
+            </div>
+            <a-upload
+              :file-list="attachmentFileList"
+              :before-upload="beforeDocumentUpload"
+              :multiple="false"
+              :disabled="saving"
+              accept=".pdf,.doc,.docx,.txt,.md,.zip,.rar"
+              @remove="handleRemoveSelectedAttachment"
+            >
+              <a-button :disabled="saving">
+                <template #icon><UploadOutlined /></template>
+                选择文件
+              </a-button>
+            </a-upload>
+            <div class="upload-hint">支持 PDF、Word、TXT、Markdown、ZIP、RAR，单个文件不超过 50MB。</div>
+          </div>
         </a-form-item>
+        <a-collapse v-model:activeKey="questionConfigPanelKey" ghost>
+          <a-collapse-panel key="question-config" header="AI 出题配置">
+            <div class="question-config-panel">
+              <div class="question-config-header">
+                <span>当前题型配置</span>
+                <a-tag color="blue">总题数：{{ totalQuestionCount }}</a-tag>
+              </div>
+
+              <a-row :gutter="16">
+                <a-col :xs="24" :sm="8">
+                  <a-form-item label="单选题">
+                    <a-input-number v-model:value="questionConfig.single_choice" :min="0" :max="20" style="width: 100%" />
+                  </a-form-item>
+                </a-col>
+                <a-col :xs="24" :sm="8">
+                  <a-form-item label="判断题">
+                    <a-input-number v-model:value="questionConfig.true_or_false" :min="0" :max="20" style="width: 100%" />
+                  </a-form-item>
+                </a-col>
+                <a-col :xs="24" :sm="8">
+                  <a-form-item label="简答题">
+                    <a-input-number v-model:value="questionConfig.short_answer" :min="0" :max="20" style="width: 100%" />
+                  </a-form-item>
+                </a-col>
+              </a-row>
+
+              <div class="question-config-hint">
+                题型数量为 0 时将使用后端默认配置，若需手动控制题量可在此处设置。
+              </div>
+            </div>
+          </a-collapse-panel>
+        </a-collapse>
+
         <a-form-item label="实验分数" name="score" required>
           <a-input-number v-model:value="formData.score" :min="0" :max="10000" style="width: 100%" placeholder="请输入实验分数" />
         </a-form-item>
@@ -182,14 +253,38 @@
       @cancel="handleCancelSubmitResult"
     >
       <a-form ref="resultFormRef" :model="resultForm" :rules="resultRules" layout="vertical">
-        <a-form-item label="实验内容 / 代码" name="code" required>
+        <a-form-item label="实验代码/报告" name="code">
+          <a-radio-group v-model:value="codeMode" style="margin-bottom: 12px" @change="handleCodeModeChange">
+            <a-radio value="text">输入代码</a-radio>
+            <a-radio value="file">上传代码/报告</a-radio>
+          </a-radio-group>
           <a-textarea
+            v-if="codeMode === 'text'"
             v-model:value="resultForm.code"
-            placeholder="请输入实验代码或实验内容"
-            :rows="12"
+            placeholder="粘贴或输入你的实验代码..."
+            :rows="8"
             :maxlength="20000"
             show-count
           />
+          <div v-else class="file-upload-area">
+            <div v-if="resultForm.code_file" class="existing-file">
+              <span>📎 {{ resultForm.code_file_name || resultForm.code_file }}</span>
+            </div>
+            <a-upload
+              :file-list="reportFileList"
+              :before-upload="beforeReportUpload"
+              :multiple="false"
+              :disabled="resultSaving"
+              accept=".py,.java,.cpp,.c,.h,.js,.pdf,.doc,.docx,.zip"
+              @remove="handleRemoveReport"
+            >
+              <a-button :disabled="resultSaving">
+                <template #icon><UploadOutlined /></template>
+                选择文件
+              </a-button>
+            </a-upload>
+            <div class="upload-hint">支持 .py、.java、.cpp、.c、.h、.js、.pdf、.doc、.docx、.zip，单个文件不超过 50MB。</div>
+          </div>
         </a-form-item>
       </a-form>
     </a-modal>
@@ -202,11 +297,70 @@
         <a-descriptions-item label="说明">
           <div class="detail-explanation">{{ detailRecord.explanation || '-' }}</div>
         </a-descriptions-item>
+        <a-descriptions-item label="实验文档">
+          <a-spin v-if="detailAttachmentsLoading" size="small" />
+          <a-alert
+            v-else-if="detailAttachmentsError"
+            type="error"
+            show-icon
+            :message="detailAttachmentsError"
+          />
+          <a-empty v-else-if="!detailAttachments.length" description="暂无实验文档" />
+          <div v-else class="attachment-list">
+            <div v-for="attachment in detailAttachments" :key="attachment.object_name" class="attachment-item">
+              <span class="attachment-name">{{ attachment.file_name }}</span>
+              <a-space :size="4">
+                <a-button type="link" size="small" @click="handlePreviewAttachment(attachment)">浏览</a-button>
+                <a-button type="link" size="small" @click="handleDownloadAttachment(attachment)">下载</a-button>
+                <a-popconfirm
+                  v-if="isTeacherOrAdmin"
+                  title="确定删除此附件吗？"
+                  ok-text="确定"
+                  cancel-text="取消"
+                  @confirm="handleDeleteAttachment(attachment)"
+                >
+                  <a-button type="link" size="small" danger>删除</a-button>
+                </a-popconfirm>
+              </a-space>
+            </div>
+          </div>
+        </a-descriptions-item>
+        <a-descriptions-item label="AI 出题配置">
+          <div v-if="detailRecord.question_config && detailRecord.question_config.types?.length">
+            <div v-for="item in detailRecord.question_config.types" :key="item.type" class="detail-question-config-item">
+              {{ formatQuestionType(item.type) }}：{{ item.count || 0 }} 道
+            </div>
+          </div>
+          <span v-else>-</span>
+        </a-descriptions-item>
         <a-descriptions-item label="分数">{{ formatScore(detailRecord.score) }}</a-descriptions-item>
         <a-descriptions-item label="开始时间">{{ formatDateTime(detailRecord.start_time) }}</a-descriptions-item>
         <a-descriptions-item label="结束时间">{{ formatDateTime(detailRecord.end_time) }}</a-descriptions-item>
       </a-descriptions>
     </a-drawer>
+
+    <a-modal
+      v-model:open="attachmentPreviewVisible"
+      :title="attachmentPreviewTitle"
+      :footer="null"
+      :width="previewModalWidth"
+      destroy-on-close
+    >
+      <a-spin v-if="attachmentPreviewLoading" tip="加载文档中..." />
+      <iframe
+        v-else-if="attachmentPreviewUrl"
+        class="attachment-preview-frame"
+        :src="attachmentPreviewUrl"
+        :title="attachmentPreviewTitle"
+      />
+      <a-alert
+        v-if="attachmentPreviewUrl"
+        class="preview-hint"
+        type="info"
+        show-icon
+        message="若浏览器无法直接预览此格式，请关闭预览窗口后下载文档查看。"
+      />
+    </a-modal>
 
     <a-drawer
       v-model:open="resultDetailVisible"
@@ -249,6 +403,34 @@
         </a-descriptions-item>
         <a-descriptions-item label="内容">
           <pre class="code-preview">{{ resultDetail.code || '-' }}</pre>
+        </a-descriptions-item>
+        <a-descriptions-item label="报告文档">
+          <a-spin v-if="resultAttachmentsLoading" size="small" />
+          <a-alert
+            v-else-if="resultAttachmentsError"
+            type="error"
+            show-icon
+            :message="resultAttachmentsError"
+          />
+          <a-empty v-else-if="!resultAttachments.length" description="暂无报告文档" />
+          <div v-else class="attachment-list">
+            <div v-for="attachment in resultAttachments" :key="attachment.object_name" class="attachment-item">
+              <span class="attachment-name">{{ attachment.file_name }}</span>
+              <a-space :size="4">
+                <a-button type="link" size="small" @click="handlePreviewAttachment(attachment)">浏览</a-button>
+                <a-button type="link" size="small" @click="handleDownloadAttachment(attachment)">下载</a-button>
+                <a-popconfirm
+                  v-if="isTeacherOrAdmin || resultDetail.user_id === currentUserId"
+                  title="确定删除此附件吗？"
+                  ok-text="确定"
+                  cancel-text="取消"
+                  @confirm="handleDeleteAttachment(attachment)"
+                >
+                  <a-button type="link" size="small" danger>删除</a-button>
+                </a-popconfirm>
+              </a-space>
+            </div>
+          </div>
         </a-descriptions-item>
       </a-descriptions>
     </a-drawer>
@@ -317,9 +499,19 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { message } from 'ant-design-vue'
-import { PlusOutlined } from '@ant-design/icons-vue'
+import { message, Upload } from 'ant-design-vue'
+import { PlusOutlined, UploadOutlined } from '@ant-design/icons-vue'
 import { useUserStore } from '@/store'
+import {
+  deleteExperimentAttachmentApi,
+  deleteExperimentResultAttachmentApi,
+  getExperimentResultAttachmentsApi,
+  getExperimentAttachmentUrlApi,
+  getExperimentResultAttachmentUrlApi,
+  getExperimentAttachmentsApi,
+  uploadExperimentResultAttachmentApi,
+  uploadExperimentAttachmentApi
+} from '@/api/file'
 import {
   createExperiment,
   createExperimentResult,
@@ -353,16 +545,28 @@ const experiments = ref([])
 const modalVisible = ref(false)
 const editingRecord = ref(null)
 const formRef = ref(null)
+const explanationMode = ref('text')
 const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detailRecord = ref({})
+const detailAttachments = ref([])
+const detailAttachmentsLoading = ref(false)
+const detailAttachmentsError = ref('')
 const formData = ref(getEmptyFormData())
+const questionConfig = ref(getDefaultQuestionConfig())
+const questionConfigPanelKey = ref(['question-config'])
+const attachmentFileList = ref([])
+const attachmentPreviewVisible = ref(false)
+const attachmentPreviewLoading = ref(false)
+const attachmentPreviewTitle = ref('')
+const attachmentPreviewUrl = ref('')
 
 const submitModalVisible = ref(false)
 const resultSaving = ref(false)
 const resultFormRef = ref(null)
 const currentExperiment = ref(null)
-const resultForm = ref({ code: '' })
+const codeMode = ref('text')
+const resultForm = ref({ code: '', code_file: null, code_file_name: null })
 const studentResultsLoading = ref(false)
 const studentResults = ref([])
 const studentResultMap = ref({})
@@ -370,6 +574,10 @@ const studentResultMap = ref({})
 const resultDetailVisible = ref(false)
 const resultDetailLoading = ref(false)
 const resultDetail = ref({})
+const resultAttachments = ref([])
+const resultAttachmentsLoading = ref(false)
+const resultAttachmentsError = ref('')
+const reportFileList = ref([])
 
 const resultsDrawerVisible = ref(false)
 const resultsLoading = ref(false)
@@ -402,6 +610,10 @@ const resultTableScrollX = computed(() => {
 
 const modalWidth = computed(() => {
   return isMobileViewport.value ? 'calc(100vw - 24px)' : 720
+})
+
+const previewModalWidth = computed(() => {
+  return isMobileViewport.value ? 'calc(100vw - 24px)' : 900
 })
 
 const submitModalWidth = computed(() => {
@@ -473,9 +685,15 @@ const formRules = {
   ]
 }
 
+const MAX_DOCUMENT_SIZE = 50 * 1024 * 1024
+const ACCEPTED_DOCUMENT_EXTENSIONS = new Set(['.pdf', '.doc', '.docx', '.txt', '.md', '.zip', '.rar'])
+const ACCEPTED_REPORT_EXTENSIONS = new Set([
+  '.py', '.java', '.cpp', '.c', '.h', '.js', '.pdf', '.doc', '.docx', '.zip'
+])
+
 const resultRules = {
   code: [
-    { required: true, message: '请输入实验内容', trigger: 'blur' },
+    { validator: validateResultContent, trigger: 'blur' },
     { max: 20000, message: '实验内容不能超过 20000 个字符', trigger: 'blur' }
   ]
 }
@@ -484,17 +702,91 @@ function normalizeId(id) {
   return id === undefined || id === null ? '' : String(id)
 }
 
+function normalizeQuestionConfig(rawConfig) {
+  const base = getDefaultQuestionConfig()
+  const config = rawConfig && typeof rawConfig === 'object' ? rawConfig : {}
+
+  if (Array.isArray(config.types)) {
+    config.types.forEach((item) => {
+      const type = String(item?.type || '').trim()
+      const count = Number(item?.count || 0)
+      if (Object.prototype.hasOwnProperty.call(base, type) && Number.isFinite(count)) {
+        base[type] = Math.max(0, count)
+      }
+    })
+    return base
+  }
+
+  Object.keys(base).forEach((key) => {
+    const value = Number(config[key] ?? 0)
+    if (Number.isFinite(value)) {
+      base[key] = Math.max(0, value)
+    }
+  })
+
+  return base
+}
+
+function buildQuestionConfigForAPI() {
+  const payload = []
+
+  Object.entries(getDefaultQuestionConfig()).forEach(([type, defaultValue]) => {
+    const count = Number(questionConfig.value?.[type] ?? defaultValue)
+    if (Number.isFinite(count) && count > 0) {
+      payload.push({ type, count: Math.max(0, Math.trunc(count)) })
+    }
+  })
+
+  return payload.length > 0 ? { types: payload } : null
+}
+
+function formatQuestionType(type) {
+  const labels = {
+    single_choice: '单选题',
+    true_or_false: '判断题',
+    short_answer: '简答题'
+  }
+  return labels[type] || type || '未知题型'
+}
+
+const totalQuestionCount = computed(() => {
+  return Object.values(questionConfig.value || {}).reduce((sum, value) => sum + (Number(value) || 0), 0)
+})
+
 function normalizeExperiment(item) {
   return {
     id: normalizeId(item?.id ?? item?.experiment_id),
     class_id: normalizeId(item?.class_id ?? item?.classId ?? props.classId),
     title: item?.title || '',
     explanation: item?.explanation || '',
+    explanation_file: item?.explanation_file ?? null,
+    explanation_file_name: item?.explanation_file_name ?? null,
+    question_config: normalizeQuestionConfig(item?.question_config ?? getDefaultQuestionConfig()),
     score: item?.score ?? 0,
     start_time: item?.start_time || '',
     end_time: item?.end_time || '',
     deleted_at: item?.deleted_at
   }
+}
+
+function normalizeExperimentAttachment(item) {
+  const objectName = item?.object_name ?? item?.objectName ?? item?.file ?? item?.path ?? ''
+  return {
+    object_name: String(objectName),
+    file_name: item?.file_name ?? item?.original_name ?? item?.filename ?? item?.name ?? String(objectName),
+    size: item?.size ?? null,
+    scope: item?.scope || 'experiment'
+  }
+}
+
+function validateResultContent() {
+  return codeMode.value === 'text'
+    ? (String(resultForm.value.code || '').trim()
+      ? Promise.resolve()
+      : Promise.reject(new Error('请输入实验代码')))
+    : (reportFileList.value.length
+      ? Promise.resolve()
+      : Promise.reject(new Error('请选择代码或报告文件')))
 }
 
 function normalizeExperimentResult(item) {
@@ -513,10 +805,20 @@ function normalizeExperimentResult(item) {
     username: item?.username || item?.user?.username || '',
     real_name: item?.real_name || item?.user?.real_name || '',
     code,
+    code_file: item?.code_file ?? null,
+    code_file_name: item?.code_file_name ?? null,
     final_score: item?.final_score ?? null,
     analysis: item?.analysis || null,
     question: item?.question || null,
     question_state: item?.question_state ?? null
+  }
+}
+
+function getDefaultQuestionConfig() {
+  return {
+    single_choice: 1,
+    true_or_false: 1,
+    short_answer: 1
   }
 }
 
@@ -525,6 +827,8 @@ function getEmptyFormData() {
   return {
     title: '',
     explanation: '',
+    explanation_file: null,
+    explanation_file_name: null,
     score: 0,
     start_time: now,
     end_time: now.add(1, 'hour')
@@ -585,7 +889,9 @@ function getStudentResult(experiment) {
 
 function hasResultCode(record) {
   if (!record) return false
-  return record.code !== null && record.code !== undefined && String(record.code).trim() !== ''
+  return (record.code !== null && record.code !== undefined && String(record.code).trim() !== '') ||
+    !!record.code_file ||
+    !!record.code_file_name
 }
 
 function hasSubmittedResult(experiment) {
@@ -758,24 +1064,35 @@ async function fetchStudentResults() {
 function handleCreate() {
   editingRecord.value = null
   formData.value = getEmptyFormData()
+  questionConfig.value = getDefaultQuestionConfig()
+  explanationMode.value = 'text'
+  attachmentFileList.value = []
   modalVisible.value = true
 }
 
 function handleEdit(record) {
   editingRecord.value = { ...record }
+  attachmentFileList.value = []
   formData.value = {
     title: record.title || '',
     explanation: record.explanation || '',
+    explanation_file: record.explanation_file ?? null,
+    explanation_file_name: record.explanation_file_name ?? null,
     score: Number(record.score || 0),
     start_time: record.start_time ? dayjs(record.start_time) : getBeijingNow(),
     end_time: record.end_time ? dayjs(record.end_time) : getBeijingNow().add(1, 'hour')
   }
+  questionConfig.value = normalizeQuestionConfig(record.question_config || getDefaultQuestionConfig())
+  explanationMode.value = record.explanation_file ? 'file' : 'text'
   modalVisible.value = true
 }
 
 async function handleView(record) {
   detailVisible.value = true
   detailLoading.value = true
+  detailAttachmentsLoading.value = true
+  detailAttachments.value = []
+  detailAttachmentsError.value = ''
   detailRecord.value = normalizeExperiment(record)
 
   try {
@@ -787,6 +1104,73 @@ async function handleView(record) {
   } finally {
     detailLoading.value = false
   }
+
+  try {
+    const res = await getExperimentAttachmentsApi(record.id)
+    if (res?.code !== undefined && Number(res.code) !== 200) {
+      throw new Error(res.message || '获取实验文档失败')
+    }
+    detailAttachments.value = extractListData(res)
+      .map(item => normalizeExperimentAttachment({ ...item, scope: 'experiment' }))
+      .filter(item => item.object_name)
+  } catch (err) {
+    console.error('获取实验文档失败:', err)
+    detailAttachmentsError.value = err.message || '获取实验文档失败'
+  } finally {
+    detailAttachmentsLoading.value = false
+  }
+}
+
+function beforeDocumentUpload(file) {
+  const extension = file.name.includes('.') ? `.${file.name.split('.').pop().toLowerCase()}` : ''
+  if (!ACCEPTED_DOCUMENT_EXTENSIONS.has(extension)) {
+    message.error('仅支持 PDF、Word、TXT、Markdown、ZIP 和 RAR 文件')
+    return Upload.LIST_IGNORE
+  }
+  if (file.size > MAX_DOCUMENT_SIZE) {
+    message.error('单个文件不能超过 50MB')
+    return Upload.LIST_IGNORE
+  }
+  explanationMode.value = 'file'
+  attachmentFileList.value = [{
+    uid: file.uid || `${file.name}-${file.lastModified}`,
+    name: file.name,
+    status: 'done',
+    originFileObj: file
+  }]
+  return false
+}
+
+function handleRemoveSelectedAttachment(file) {
+  attachmentFileList.value = attachmentFileList.value.filter(item => item.uid !== file.uid)
+  return true
+}
+
+function handleExplanationModeChange() {
+  if (explanationMode.value === 'text') {
+    attachmentFileList.value = []
+  }
+}
+
+async function uploadPendingDocuments(experimentId) {
+  const selectedFile = attachmentFileList.value[0]
+  const file = selectedFile?.originFileObj
+  if (!file) {
+    throw new Error(`无法读取待上传文档：${selectedFile?.name || ''}`)
+  }
+
+  const res = await uploadExperimentAttachmentApi(file, experimentId)
+  if (res?.code !== undefined && Number(res.code) !== 200) {
+    throw new Error(res.message || `文档上传失败：${file.name}`)
+  }
+  const uploaded = extractDetailData(res)
+  const objectName = uploaded?.object_name
+  if (!objectName) throw new Error('文档已上传，但接口未返回 object_name，无法保存实验附件信息。')
+  attachmentFileList.value = []
+  return {
+    object_name: String(objectName),
+    file_name: uploaded.file_name || file.name
+  }
 }
 
 async function handleSubmit() {
@@ -796,31 +1180,93 @@ async function handleSubmit() {
     return
   }
 
+  if (explanationMode.value === 'file' && !formData.value.explanation_file && !attachmentFileList.value.length) {
+    message.warning('请选择实验说明文档')
+    return
+  }
+  if (explanationMode.value === 'text' && !formData.value.explanation?.trim()) {
+    message.warning('请输入实验说明')
+    return
+  }
+
+  const previousFile = editingRecord.value?.explanation_file
+  const normalizedQuestionConfig = buildQuestionConfigForAPI()
   const payload = {
     class_id: normalizeId(props.classId),
     title: formData.value.title.trim(),
-    explanation: formData.value.explanation?.trim() || '',
+    explanation: explanationMode.value === 'text' ? (formData.value.explanation?.trim() || '') : '',
+    explanation_file: explanationMode.value === 'file' ? (formData.value.explanation_file || null) : null,
+    explanation_file_name: explanationMode.value === 'file' ? (formData.value.explanation_file_name || null) : null,
+    question_config: normalizedQuestionConfig,
     score: Number(formData.value.score || 0),
     start_time: formData.value.start_time ? formData.value.start_time.format('YYYY-MM-DD HH:mm:ss') : null,
     end_time: formData.value.end_time ? formData.value.end_time.format('YYYY-MM-DD HH:mm:ss') : null
   }
 
   saving.value = true
+  let createdWithoutId = false
+  let experimentSaved = false
+  const hasPendingAttachments = attachmentFileList.value.length > 0
+  let uploadedAttachment = null
 
   try {
+    let experimentId = normalizeId(editingRecord.value?.id)
     if (editingRecord.value?.id) {
       await updateExperiment({ ...payload, id: editingRecord.value.id, deleted_at: editingRecord.value.deleted_at })
-      message.success('实验更新成功')
+      experimentSaved = true
     } else {
-      await createExperiment(payload)
-      message.success('实验创建成功')
+      const res = await createExperiment(payload)
+      experimentSaved = true
+      const createdRecord = extractDetailData(res)
+      experimentId = normalizeId(createdRecord?.id ?? createdRecord?.experiment_id ?? createdRecord?.experiment?.id)
+      if (!experimentId) {
+        if (hasPendingAttachments) {
+          createdWithoutId = true
+          throw new Error('实验已创建，但接口未返回实验 ID，无法关联上传文档。请检查后端创建实验接口。')
+        }
+      } else {
+        editingRecord.value = { ...normalizeExperiment(createdRecord), ...payload, id: experimentId }
+      }
     }
 
+    if (attachmentFileList.value.length) {
+      if (!experimentId) {
+        createdWithoutId = true
+        throw new Error('实验已保存，但接口未返回实验 ID，无法关联上传文档。请检查后端创建实验接口。')
+      }
+      uploadedAttachment = await uploadPendingDocuments(experimentId)
+      await updateExperiment({
+        ...payload,
+        id: experimentId,
+        explanation_file: uploadedAttachment.object_name,
+        explanation_file_name: uploadedAttachment.file_name,
+        deleted_at: editingRecord.value?.deleted_at
+      })
+    }
+
+    const savedFile = uploadedAttachment?.object_name || payload.explanation_file
+    if (previousFile && previousFile !== savedFile) {
+      try {
+        await deleteExperimentAttachmentApi(previousFile, editingRecord.value.id)
+      } catch (deleteError) {
+        console.error('清理旧实验说明附件失败:', deleteError)
+        message.error(`实验已保存，但旧附件删除失败：${deleteError.message || '请稍后重试'}`)
+      }
+    }
+
+    message.success(hasPendingAttachments ? '实验保存并上传文档成功' : '实验保存成功')
     modalVisible.value = false
     await fetchExperiments()
   } catch (err) {
     console.error('保存实验失败:', err)
-    message.error(err.message || '保存实验失败')
+    if (createdWithoutId) {
+      modalVisible.value = false
+      await fetchExperiments()
+    }
+    const errorMessage = err.message || '保存实验失败'
+    message.error(experimentSaved && !createdWithoutId
+      ? `实验已保存，但文档上传未完成：${errorMessage}`
+      : errorMessage)
   } finally {
     saving.value = false
   }
@@ -829,6 +1275,82 @@ async function handleSubmit() {
 function handleCancel() {
   modalVisible.value = false
   editingRecord.value = null
+  questionConfig.value = getDefaultQuestionConfig()
+  attachmentFileList.value = []
+}
+
+async function handlePreviewAttachment(attachment) {
+  attachmentPreviewVisible.value = true
+  attachmentPreviewLoading.value = true
+  attachmentPreviewUrl.value = ''
+  attachmentPreviewTitle.value = attachment.file_name
+
+  try {
+    const getUrl = attachment.scope === 'result'
+      ? getExperimentResultAttachmentUrlApi
+      : getExperimentAttachmentUrlApi
+    attachmentPreviewUrl.value = await getUrl(attachment.object_name)
+    if (!attachmentPreviewUrl.value) throw new Error('未能获取文档浏览地址')
+  } catch (err) {
+    console.error('获取实验文档浏览地址失败:', err)
+    message.error(err.message || '获取文档浏览地址失败')
+    attachmentPreviewVisible.value = false
+  } finally {
+    attachmentPreviewLoading.value = false
+  }
+}
+
+async function handleDownloadAttachment(attachment) {
+  try {
+    const getUrl = attachment.scope === 'result'
+      ? getExperimentResultAttachmentUrlApi
+      : getExperimentAttachmentUrlApi
+    const url = await getUrl(attachment.object_name)
+    if (!url) throw new Error('未能获取文档下载地址')
+    window.open(url, '_blank', 'noopener,noreferrer')
+  } catch (err) {
+    console.error('获取实验文档下载地址失败:', err)
+    message.error(err.message || '下载文档失败')
+  }
+}
+
+function handleDeleteExperimentAttachment() {
+  const objectName = formData.value.explanation_file
+  if (!objectName) return
+  formData.value.explanation_file = null
+  formData.value.explanation_file_name = null
+  message.info('保存实验后将移除当前附件')
+}
+
+async function handleDeleteAttachment(attachment) {
+  try {
+    let res
+    if (attachment.scope === 'result') {
+      res = await deleteExperimentResultAttachmentApi(attachment.object_name, resultDetail.value.id)
+    } else {
+      res = await deleteExperimentAttachmentApi(attachment.object_name, detailRecord.value.id)
+    }
+    if (res?.code !== undefined && Number(res.code) !== 200) {
+      throw new Error(res.message || '删除附件失败')
+    }
+    if (attachment.scope === 'result') {
+      resultAttachments.value = resultAttachments.value.filter(item => item.object_name !== attachment.object_name)
+      if (resultDetail.value.code_file === attachment.object_name) {
+        resultDetail.value.code_file = null
+        resultDetail.value.code_file_name = null
+      }
+    } else {
+      detailAttachments.value = detailAttachments.value.filter(item => item.object_name !== attachment.object_name)
+      if (detailRecord.value.explanation_file === attachment.object_name) {
+        detailRecord.value.explanation_file = null
+        detailRecord.value.explanation_file_name = null
+      }
+    }
+    message.success('附件已删除')
+  } catch (err) {
+    console.error('删除附件失败:', err)
+    message.error(err.message || '删除附件失败')
+  }
 }
 
 async function handleDelete(experimentId) {
@@ -847,16 +1369,75 @@ async function handleDelete(experimentId) {
 function handleOpenSubmit(record) {
   currentExperiment.value = record
   const existingResult = getStudentResult(record.id)
+  codeMode.value = existingResult?.code_file && !existingResult?.code ? 'file' : 'text'
   resultForm.value = {
-    code: existingResult?.code || ''
+    code: existingResult?.code || '',
+    code_file: existingResult?.code_file || null,
+    code_file_name: existingResult?.code_file_name || null
   }
+  reportFileList.value = []
   submitModalVisible.value = true
 }
 
 function handleCancelSubmitResult() {
   submitModalVisible.value = false
   currentExperiment.value = null
-  resultForm.value = { code: '' }
+  codeMode.value = 'text'
+  resultForm.value = { code: '', code_file: null, code_file_name: null }
+  reportFileList.value = []
+}
+
+function beforeReportUpload(file) {
+  const extension = file.name.includes('.') ? `.${file.name.split('.').pop().toLowerCase()}` : ''
+  if (!ACCEPTED_REPORT_EXTENSIONS.has(extension)) {
+    message.error('不支持此代码或报告文件格式')
+    return Upload.LIST_IGNORE
+  }
+  if (file.size > MAX_DOCUMENT_SIZE) {
+    message.error('单个文件不能超过 50MB')
+    return Upload.LIST_IGNORE
+  }
+  codeMode.value = 'file'
+  reportFileList.value = [{
+    uid: file.uid || `${file.name}-${file.lastModified}`,
+    name: file.name,
+    status: 'done',
+    originFileObj: file
+  }]
+  resultFormRef.value?.validateFields(['code']).catch(() => {})
+  return false
+}
+
+function handleRemoveReport(file) {
+  reportFileList.value = reportFileList.value.filter(item => item.uid !== file.uid)
+  resultFormRef.value?.validateFields(['code']).catch(() => {})
+  return true
+}
+
+function handleCodeModeChange() {
+  if (codeMode.value === 'text') {
+    reportFileList.value = []
+  }
+  resultFormRef.value?.validateFields(['code']).catch(() => {})
+}
+
+async function uploadPendingReportDocuments(experimentResultId) {
+  const selectedFile = reportFileList.value[0]
+  const file = selectedFile?.originFileObj
+  if (!file) {
+    throw new Error(`无法读取待上传报告：${selectedFile?.name || ''}`)
+  }
+
+  const res = await uploadExperimentResultAttachmentApi(file, experimentResultId)
+  if (res?.code !== undefined && Number(res.code) !== 200) {
+    throw new Error(res.message || `报告上传失败：${file.name}`)
+  }
+  const uploaded = extractDetailData(res)
+  if (!uploaded?.object_name) throw new Error('报告已上传，但接口未返回 object_name。')
+  return {
+    object_name: String(uploaded.object_name),
+    file_name: uploaded.file_name || file.name
+  }
 }
 
 async function handleSubmitResult() {
@@ -869,25 +1450,61 @@ async function handleSubmitResult() {
   if (!currentExperiment.value?.id) return
 
   resultSaving.value = true
+  let createdResultId = ''
+  let createdResultSaved = false
+  let keepCreatedResult = false
+  let existingResult = null
 
   try {
-    const existingResult = getStudentResult(currentExperiment.value)
+    existingResult = getStudentResult(currentExperiment.value)
     const isResubmit = !!existingResult?.id
 
+    const res = await createExperimentResult({
+      experiment_id: currentExperiment.value.id,
+      code: codeMode.value === 'text' ? resultForm.value.code.trim() : '',
+      code_file: null,
+      code_file_name: codeMode.value === 'file' ? reportFileList.value[0]?.name || null : null
+    })
+    createdResultSaved = true
+    const createdRecord = extractDetailData(res)
+    createdResultId = normalizeId(createdRecord?.id ?? createdRecord?.experiment_result_id ?? createdRecord?.result?.id)
+
+    if (codeMode.value === 'file' && !createdResultId) {
+      throw new Error('提交记录已创建，但接口未返回提交 ID，无法关联报告文档。请检查后端提交接口。')
+    }
+
+    if (codeMode.value === 'file') {
+      const uploadedFile = await uploadPendingReportDocuments(createdResultId)
+      resultForm.value.code_file = uploadedFile.object_name
+      resultForm.value.code_file_name = uploadedFile.file_name
+    }
+
+    keepCreatedResult = true
     if (isResubmit) {
       await deleteExperimentResult(existingResult.id)
     }
 
-    await createExperimentResult({
-      experiment_id: currentExperiment.value.id,
-      code: resultForm.value.code.trim()
-    })
     message.success(isResubmit ? '实验重新提交成功' : '实验提交成功')
     submitModalVisible.value = false
+    codeMode.value = 'text'
+    resultForm.value = { code: '', code_file: null, code_file_name: null }
+    reportFileList.value = []
     await fetchStudentResults()
   } catch (err) {
     console.error('提交实验失败:', err)
-    message.error(err.message || '提交实验失败')
+    let errorMessage = err.message || '提交实验失败'
+    if (createdResultSaved && createdResultId && !keepCreatedResult) {
+      try {
+        await deleteExperimentResult(createdResultId)
+      } catch (cleanupError) {
+        console.error('清理未完成的实验提交失败:', cleanupError)
+        errorMessage += `；未完成的提交记录清理失败：${cleanupError.message || '请联系管理员处理'}`
+      }
+    }
+    if (createdResultSaved) {
+      await fetchStudentResults()
+    }
+    message.error(errorMessage)
   } finally {
     resultSaving.value = false
   }
@@ -898,6 +1515,9 @@ async function handleViewResult(record) {
 
   resultDetailVisible.value = true
   resultDetailLoading.value = true
+  resultAttachmentsLoading.value = true
+  resultAttachments.value = []
+  resultAttachmentsError.value = ''
   resultDetail.value = normalizeExperimentResult(record)
 
   try {
@@ -908,6 +1528,21 @@ async function handleViewResult(record) {
     message.error(err.message || '获取实验提交详情失败')
   } finally {
     resultDetailLoading.value = false
+  }
+
+  try {
+    const res = await getExperimentResultAttachmentsApi(record.id)
+    if (res?.code !== undefined && Number(res.code) !== 200) {
+      throw new Error(res.message || '获取报告文档失败')
+    }
+    resultAttachments.value = extractListData(res)
+      .map(item => normalizeExperimentAttachment({ ...item, scope: 'result' }))
+      .filter(item => item.object_name)
+  } catch (err) {
+    console.error('获取报告文档失败:', err)
+    resultAttachmentsError.value = err.message || '获取报告文档失败'
+  } finally {
+    resultAttachmentsLoading.value = false
   }
 }
 
@@ -1075,6 +1710,84 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.7;
+}
+
+.question-config-panel {
+  padding: 12px 0 4px;
+}
+
+.question-config-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.question-config-hint {
+  margin-top: 8px;
+  color: #8c8c8c;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.detail-question-config-item {
+  padding: 4px 0;
+}
+
+.upload-hint {
+  margin-top: 8px;
+  color: #8c8c8c;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.file-upload-area {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.existing-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.attachment-list {
+  width: 100%;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.attachment-item:last-child {
+  border-bottom: 0;
+}
+
+.attachment-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.attachment-preview-frame {
+  display: block;
+  width: 100%;
+  height: min(70vh, 720px);
+  border: 0;
+}
+
+.preview-hint {
+  margin-top: 12px;
 }
 
 .analysis-reason {
