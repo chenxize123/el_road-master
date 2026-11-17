@@ -137,13 +137,12 @@
               </div>
               <template v-else>
                 <div class="video-wrapper">
-                  <video
+                  <InteractiveCourseVideo
                     ref="videoRef"
-                    class="video-element"
+                    :key="currentVideo.playUrl"
                     :src="currentVideo.playUrl"
-                    controls
                     @error="handleVideoError"
-                  ></video>
+                  />
                 </div>
               </template>
             </div>
@@ -167,6 +166,7 @@
 </template>
 
 <script setup>
+import InteractiveCourseVideo from '@/components/common/InteractiveCourseVideo.vue'
 import { computed, ref, watch } from 'vue'
 import { message, Empty } from 'ant-design-vue'
 import {
@@ -649,4 +649,8 @@ watch(() => props.loading, (newLoading) => {
     display: none;
   }
 }
+
+.video-main { display: block; height: auto; max-height: 100%; overflow: auto; }
+.player-container { display: block; flex: none; height: auto; }
+.video-wrapper { display: block; flex: none; min-height: 0; height: auto; overflow: visible; background: transparent; }
 </style>
