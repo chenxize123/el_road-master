@@ -37,6 +37,7 @@
   "devDependencies": {
     "@vue/eslint-config-standard": "^9.0.1",
     "eslint": "^10.3.0",
-    "eslint-plugin-vue": "^10.9.1"
+    "eslint-plugin-vue": "^10.9.1",
+    "vue-eslint-parser": "^10.4.1"
   }
 }

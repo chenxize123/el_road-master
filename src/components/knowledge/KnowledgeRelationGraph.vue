@@ -1,6 +1,26 @@
 <template>
   <div class="knowledge-echarts-graph">
     <div class="graph-surface">
+      <div v-if="chapterOptions.length" class="graph-toolbar">
+        <span class="toolbar-label">按章节查看</span>
+        <a-select
+          v-model:value="selectedChapterId"
+          class="chapter-select"
+          aria-label="选择章节"
+        >
+          <a-select-option value="all">全部章节</a-select-option>
+          <a-select-option
+            v-for="chapter in chapterOptions"
+            :key="chapter.value"
+            :value="chapter.value"
+          >
+            {{ chapter.label }}
+          </a-select-option>
+        </a-select>
+        <span v-if="selectedChapterId !== 'all'" class="focus-hint">
+          仅显示所选章节及其内容
+        </span>
+      </div>
       <div ref="chartRef" class="chart-canvas"></div>
 
       <div v-if="selectedNode" class="floating-detail">
@@ -63,6 +83,8 @@ const chartRef = ref(null)
 const nodes = ref([])
 const links = ref([])
 const selectedNode = ref(null)
+const selectedChapterId = ref('all')
+const chapterOptions = ref([])
 
 let chartInstance = null
 let resizeObserver = null
@@ -135,8 +157,32 @@ const graphOption = computed(() => ({
     {
       type: 'graph',
       layout: 'none',
-      data: nodes.value,
-      links: links.value,
+      data: nodes.value.map(node => {
+        const isSelectedChapter = node.id === selectedChapterId.value
+
+        return {
+          ...node,
+          symbolSize: isSelectedChapter ? node.symbolSize + 8 : node.symbolSize,
+          itemStyle: {
+            ...node.itemStyle,
+            ...(isSelectedChapter ? { borderColor: '#1d4ed8', borderWidth: 3 } : {})
+          },
+          label: {
+            ...node.label,
+            ...(isSelectedChapter ? { fontWeight: 'bold', fontSize: node.label.fontSize + 2 } : {})
+          }
+        }
+      }),
+      links: links.value.map(link => {
+        return {
+          ...link,
+          lineStyle: {
+            ...link.lineStyle,
+            opacity: selectedChapterId.value === 'all' ? 0.3 : 0.65,
+            width: selectedChapterId.value === 'all' ? 1.5 : 2
+          }
+        }
+      }),
       roam: true,
       draggable: false,
       left: 12,
@@ -236,10 +282,20 @@ function buildGraphData() {
   const tree = ensureTreeIds(props.treeData || [])
 
   if (!tree.length) {
+    chapterOptions.value = []
     nodes.value = []
     links.value = []
     selectedNode.value = null
     return
+  }
+
+  chapterOptions.value = tree
+    .filter(item => item.type === 'chapter')
+    .map(item => ({ label: item.label || '未命名章节', value: String(item.id) }))
+
+  if (selectedChapterId.value !== 'all' &&
+    !chapterOptions.value.some(chapter => chapter.value === selectedChapterId.value)) {
+    selectedChapterId.value = 'all'
   }
 
   const { flatNodes, flatLinks } = flattenTree(tree)
@@ -268,7 +324,7 @@ function buildGraphData() {
       index,
       weight: Math.max(3, leafCount)
     }
-  })
+  }).filter(branch => selectedChapterId.value === 'all' || branch.id === selectedChapterId.value)
 
   const totalWeight = branches.reduce((sum, branch) => sum + branch.weight, 0)
   let currentAngle = -Math.PI / 2
@@ -277,21 +333,40 @@ function buildGraphData() {
     const sectorAngle = (branch.weight / totalWeight) * 2 * Math.PI
     const color = branchPalette[branch.index % branchPalette.length]
 
-    graphLinks.push(toEchartsLink('virtual-root', branch.id, color, 1))
-    placeBranch(branch.id, nodeMap, graphNodes, graphLinks, color, currentAngle, currentAngle + sectorAngle, 1)
+    graphLinks.push(toEchartsLink('virtual-root', branch.id, color, 1, branch.id))
+    placeBranch(
+      branch.id,
+      nodeMap,
+      graphNodes,
+      graphLinks,
+      color,
+      currentAngle,
+      currentAngle + sectorAngle,
+      1,
+      branch.id
+    )
     currentAngle += sectorAngle
   })
 
   flatLinks.forEach(link => {
+    const chapterId = root.childrenIds[link.branchIndex]
+    if (selectedChapterId.value !== 'all' && chapterId !== selectedChapterId.value) return
+
     const color = branchPalette[link.branchIndex % branchPalette.length]
-    graphLinks.push(toEchartsLink(link.source, link.target, color, link.depth))
+    graphLinks.push(toEchartsLink(
+      link.source,
+      link.target,
+      color,
+      link.depth,
+      chapterId
+    ))
   })
 
   nodes.value = graphNodes
   links.value = graphLinks
 }
 
-function placeBranch(nodeId, nodeMap, graphNodes, graphLinks, color, startAngle, endAngle, depth) {
+function placeBranch(nodeId, nodeMap, graphNodes, graphLinks, color, startAngle, endAngle, depth, chapterId) {
   const node = nodeMap.get(nodeId)
   if (!node) return
 
@@ -299,7 +374,7 @@ function placeBranch(nodeId, nodeMap, graphNodes, graphLinks, color, startAngle,
   const radius = getRadius(depth)
   node.x = radius * Math.cos(midAngle)
   node.y = radius * Math.sin(midAngle)
-  graphNodes.push(toEchartsNode(node, color))
+  graphNodes.push(toEchartsNode(node, color, false, chapterId))
 
   if (!node.childrenIds?.length) return
 
@@ -316,7 +391,17 @@ function placeBranch(nodeId, nodeMap, graphNodes, graphLinks, color, startAngle,
 
     const childLeaves = getDescendantLeafCount(child, nodeMap)
     const childRange = (childLeaves / totalLeaves) * usableRange
-    placeBranch(childId, nodeMap, graphNodes, graphLinks, color, childAngle, childAngle + childRange, depth + 1)
+    placeBranch(
+      childId,
+      nodeMap,
+      graphNodes,
+      graphLinks,
+      color,
+      childAngle,
+      childAngle + childRange,
+      depth + 1,
+      chapterId
+    )
     childAngle += childRange
   })
 }
@@ -331,7 +416,7 @@ function getSymbolSize(node, isRoot) {
   return Math.max(14, 40 - node.depth * 6)
 }
 
-function toEchartsNode(node, color, isRoot = false) {
+function toEchartsNode(node, color, isRoot = false, chapterId = null) {
   const x = node.x || 0
   const y = node.y || 0
 
@@ -342,6 +427,7 @@ function toEchartsNode(node, color, isRoot = false) {
     y,
     fixed: true,
     category: node.type,
+    chapterId,
     originalNode: node.sourceItem || node,
     childrenIds: node.childrenIds || [],
     symbol: 'circle',
@@ -377,10 +463,11 @@ function toEchartsNode(node, color, isRoot = false) {
   }
 }
 
-function toEchartsLink(source, target, color, depth) {
+function toEchartsLink(source, target, color, depth, chapterId) {
   return {
     source,
     target,
+    chapterId,
     lineStyle: {
       color,
       curveness: 0.2,
@@ -461,6 +548,16 @@ onBeforeUnmount(() => {
 
 watch(() => props.treeData, updateGraph, { deep: true })
 watch(() => props.title, updateGraph)
+watch(chapterOptions, options => {
+  if (selectedChapterId.value !== 'all' &&
+    !options.some(option => option.value === selectedChapterId.value)) {
+    selectedChapterId.value = 'all'
+  }
+})
+watch(selectedChapterId, () => {
+  buildGraphData()
+  nextTick(renderChart)
+})
 
 defineExpose({
   nodes,
@@ -482,6 +579,8 @@ defineExpose({
 }
 
 .graph-surface {
+  display: flex;
+  flex-direction: column;
   position: relative;
   width: min(100%, 1040px);
   aspect-ratio: 1 / 1;
@@ -489,9 +588,40 @@ defineExpose({
   background: #ffffff;
 }
 
+.graph-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #eef2f7;
+  background: #fbfcfe;
+}
+
+.toolbar-label {
+  flex: 0 0 auto;
+  color: #475467;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chapter-select {
+  width: min(320px, 42%);
+}
+
+.focus-hint {
+  overflow: hidden;
+  color: #667085;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chart-canvas {
+  flex: 1 1 auto;
   width: 100%;
-  height: 100%;
+  height: 0;
   min-height: 0;
 }
 
@@ -601,6 +731,22 @@ defineExpose({
     left: 12px;
     width: auto;
     max-height: 260px;
+  }
+
+  .graph-toolbar {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    padding: 8px 12px;
+  }
+
+  .chapter-select {
+    flex: 1 1 180px;
+    width: auto;
+  }
+
+  .focus-hint {
+    flex-basis: 100%;
+    padding-left: 2px;
   }
 }
 </style>

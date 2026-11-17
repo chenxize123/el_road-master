@@ -284,6 +284,27 @@ export function deleteCourseApi(courseId) {
   })
 }
 
+// 获取课程授课老师列表
+export function getCourseTeachers(courseId) {
+  return courseService.request(`/course/${courseId}/teachers`, {
+    method: 'GET'
+  })
+}
+
+// 给课程添加老师
+export function addTeacherToCourse(courseId, teacherId) {
+  return courseService.request(`/course/${courseId}/teachers?teacher_id=${encodeURIComponent(teacherId)}`, {
+    method: 'POST'
+  })
+}
+
+// 从课程移除老师
+export function removeTeacherFromCourse(courseId, teacherId) {
+  return courseService.request(`/course/${courseId}/teachers/${encodeURIComponent(teacherId)}`, {
+    method: 'DELETE'
+  })
+}
+
 // 获取知识图谱数据
 export function getKnowledgeGraphApi(courseId) {
   return courseService.request(`/course/${courseId}/knowledge-graph`)
@@ -514,6 +535,28 @@ export function getUsersByClassId(classId) {
 export function getCourseVideoListApi(courseId) {
   return courseService.request(`/course/video/course_id?course_id=${courseId}`, {
     method: 'GET'
+  })
+}
+
+/**
+ * Persist the full video order for a course.
+ */
+export function updateCourseVideoOrderApi(courseId, videoIds) {
+  return courseService.request('/course/video/order/', {
+    method: 'PUT',
+    body: {
+      course_id: String(courseId),
+      video_ids: videoIds.map(String)
+    }
+  })
+}
+
+/**
+ * Delete a course video and its server-side object.
+ */
+export function deleteCourseVideoApi(videoId) {
+  return courseService.request(`/course/video/?video_id=${encodeURIComponent(String(videoId))}`, {
+    method: 'DELETE'
   })
 }
 

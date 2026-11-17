@@ -13,13 +13,22 @@
       :activeKey="activeTab"
       class="main-tabs"
       @change="handleTabChange"
-      centered=true
+      :centered="true"
     >
       <a-tab-pane key="basic" tab="基本信息">
         <template #tab>
           <span>
             <info-circle-outlined />
             基本信息
+          </span>
+        </template>
+      </a-tab-pane>
+
+      <a-tab-pane key="course-resource" tab="课程资料">
+        <template #tab>
+          <span>
+            <folder-open-outlined />
+            课程资料
           </span>
         </template>
       </a-tab-pane>
@@ -51,15 +60,6 @@
         </template>
       </a-tab-pane>
 
-      <!-- <a-tab-pane key="management" tab="课程管理">
-        <template #tab>
-          <span>
-            <setting-outlined />
-            课程管理
-          </span>
-        </template>
-      </a-tab-pane> -->
-
       <a-tab-pane key="question-bank" tab="题库">
         <template #tab>
           <span>
@@ -74,6 +74,24 @@
           <span>
             <file-text-outlined />
             试卷
+          </span>
+        </template>
+      </a-tab-pane>
+
+      <a-tab-pane key="experiment-list" tab="实验列表">
+        <template #tab>
+          <span>
+            <ExperimentOutlined />
+            实验列表
+          </span>
+        </template>
+      </a-tab-pane>
+
+      <a-tab-pane key="exam" tab="考试列表">
+        <template #tab>
+          <span>
+            <FileProtectOutlined />
+            考试列表
           </span>
         </template>
       </a-tab-pane>
@@ -94,7 +112,10 @@ import {
   ProjectOutlined,
   BookOutlined,
   FolderOutlined,
-  FileTextOutlined
+  FolderOpenOutlined,
+  FileTextOutlined,
+  FileProtectOutlined,
+  ExperimentOutlined
 } from '@ant-design/icons-vue'
 
 const props = defineProps({
@@ -110,7 +131,6 @@ const props = defineProps({
 
 const emit = defineEmits(['update:activeTab', 'tab-change'])
 
-// 处理标签页切换
 const handleTabChange = (key) => {
   emit('update:activeTab', key)
   emit('tab-change', key)

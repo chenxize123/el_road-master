@@ -24,6 +24,12 @@
 
     <a-spin v-if="loading" tip="加载问答题目中..." class="loading-container" />
 
+    <a-result v-else-if="accessDeniedMessage" status="warning" title="暂不可进入代码问答" :sub-title="accessDeniedMessage">
+      <template #extra>
+        <a-button type="primary" @click="handleBack">返回实验</a-button>
+      </template>
+    </a-result>
+
     <a-result v-else-if="error" status="error" title="加载失败" :sub-title="error">
       <template #extra>
         <a-button type="primary" @click="fetchResultDetail">重试</a-button>
@@ -183,6 +189,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { CheckCircleOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons-vue'
 import { getExperimentResultById, submitExperimentAnalysis } from '@/api/experiment'
+import { getExperimentQuestionWindowApi } from '@/api/experimentQuestionWindow'
+import {
+  isQuestionWindowOpen,
+  normalizeQuestionWindowStatus
+} from '@/utils/experimentQuestionWindow'
 
 const route = useRoute()
 const router = useRouter()
@@ -191,6 +202,7 @@ const resultId = computed(() => String(route.params.resultId || ''))
 const loading = ref(false)
 const submitting = ref(false)
 const error = ref('')
+const accessDeniedMessage = ref('')
 const submitConfirmVisible = ref(false)
 const resultDetail = ref({})
 const questionObject = ref({})
@@ -367,9 +379,41 @@ async function fetchResultDetail() {
 
   loading.value = true
   error.value = ''
+  accessDeniedMessage.value = ''
   try {
     const res = await getExperimentResultById(resultId.value)
-    applyResultDetail(extractResponseData(res))
+    const detail = extractResponseData(res)
+    const answered = detail?.question_state === '已回答' || detail?.question_state === '已批改'
+    if (!answered) {
+      const score = Number(detail?.analysis?.score)
+      if (!Number.isFinite(score) || score < 80) {
+        accessDeniedMessage.value = '代码得分需达到 80 分后才能进入代码问答。'
+        return
+      }
+      if (!detail?.question) {
+        accessDeniedMessage.value = '该实验尚未生成代码问答题目。'
+        return
+      }
+      const experimentId = detail?.experiment_id ??
+        detail?.experimentId ??
+        (typeof detail?.experiment === 'object' ? detail.experiment?.id : null)
+      if (!experimentId) {
+        accessDeniedMessage.value = '无法确认所属实验，暂时不能进入代码问答。'
+        return
+      }
+      const statusResponse = await getExperimentQuestionWindowApi(experimentId)
+      if (statusResponse?.code !== undefined && Number(statusResponse.code) !== 200) {
+        throw new Error(statusResponse.message || '获取问答开放状态失败')
+      }
+      const status = normalizeQuestionWindowStatus(statusResponse)
+      if (!isQuestionWindowOpen(status)) {
+        accessDeniedMessage.value = status.question_open === true || status.ended || status.closed
+          ? '代码问答时间已结束。'
+          : '教师尚未开启代码问答，请稍后再试。'
+        return
+      }
+    }
+    applyResultDetail(detail)
   } catch (err) {
     console.error('加载代码问答失败:', err)
     error.value = err.message || '加载代码问答失败'

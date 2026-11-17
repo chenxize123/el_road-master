@@ -14,6 +14,7 @@
       <template #extra>
         <a-space>
           <KnowledgeGraphButton />
+          <DrawSoftwareButton />
           <a-button type="primary" :disabled="isVisitor" @click="goToProfile">
             个人资料
           </a-button>
@@ -89,6 +90,7 @@
 
 <script setup>
 import KnowledgeGraphButton from '@/components/common/KnowledgeGraphButton.vue'
+import DrawSoftwareButton from '@/components/common/DrawSoftwareButton.vue'
 import { computed, onMounted, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { useUserStore } from '@/store'

@@ -6,7 +6,8 @@ function normalizeId(id) {
 
 export function createExperiment(data) {
   return api.post('/experiment/', {
-    class_id: normalizeId(data.class_id),
+    ...(data.course_id !== undefined ? { course_id: normalizeId(data.course_id) } : {}),
+    ...(data.class_id !== undefined ? { class_id: normalizeId(data.class_id) || null } : {}),
     title: data.title,
     explanation: data.explanation,
     explanation_file: data.explanation_file || null,
@@ -25,6 +26,8 @@ export function deleteExperiment(experimentId) {
 export function updateExperiment(data) {
   const payload = {
     id: normalizeId(data.id),
+    ...(data.course_id !== undefined ? { course_id: normalizeId(data.course_id) } : {}),
+    ...(data.class_id !== undefined ? { class_id: normalizeId(data.class_id) || null } : {}),
     title: data.title,
     explanation: data.explanation,
     explanation_file: data.explanation_file || null,
@@ -47,7 +50,30 @@ export function getExperimentById(experimentId) {
 }
 
 export function getExperimentsByClassId(classId) {
-  return api.get(`/experiment/class_id?class_id=${encodeURIComponent(normalizeId(classId))}`)
+  return api.get(`/experiment/class_published/${encodeURIComponent(normalizeId(classId))}`)
+}
+
+export function getExperimentsByCourseId(courseId) {
+  return api.get(`/experiment/course/${encodeURIComponent(normalizeId(courseId))}`)
+}
+
+export function publishExperiment(data) {
+  return api.post('/experiment/publish', {
+    experiment_id: normalizeId(data.experiment_id),
+    class_ids: (data.class_ids || []).map(normalizeId),
+    publish_time: data.publish_time || null
+  })
+}
+
+export function unpublishExperiment(data) {
+  return api.post('/experiment/unpublish', {
+    experiment_id: normalizeId(data.experiment_id),
+    class_id: normalizeId(data.class_id)
+  })
+}
+
+export function getExperimentPublishes(experimentId) {
+  return api.get(`/experiment/publishes/${encodeURIComponent(normalizeId(experimentId))}`)
 }
 
 export function createExperimentResult(data) {

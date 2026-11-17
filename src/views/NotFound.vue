@@ -42,8 +42,6 @@ const router = useRouter()
 
 const quickPages = [
   { name: '首页', path: '/' },
-  { name: '关于', path: '/about' },
-  { name: '功能演示', path: '/demo' },
   { name: '登录', path: '/login' }
 ]
 

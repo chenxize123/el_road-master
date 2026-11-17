@@ -248,35 +248,96 @@
                     <div class="content-text">{{ item.content || '-' }}</div>
                   </div>
 
-                  <div v-if="hasAiAnalyses(item.id)" class="ai-analyses-section">
-                    <a-button
-                      type="link"
-                      size="small"
-                      class="ai-analyses-toggle"
-                      @click="toggleAiAnalyses(item.id)"
-                    >
-                      {{ isAiAnalysesExpanded(item.id) ? '收起' : `查看${getAiAnalysesCount(item.id)}条AI分析` }}
-                    </a-button>
+                  <div v-if="hasReplies(item.id) || replyingToId === item.id" class="replies-section">
+                    <div class="replies-toolbar">
+                      <a-button
+                        v-if="hasReplies(item.id)"
+                        type="link"
+                        size="small"
+                        class="replies-toggle"
+                        @click="toggleReplies(item.id)"
+                      >
+                        {{ isRepliesExpanded(item.id) ? '收起' : `查看${getRepliesCount(item.id)}条回复` }}
+                      </a-button>
+                      <a-button
+                        v-if="canUseAIFeature && replyingToId !== item.id"
+                        type="link"
+                        size="small"
+                        class="reply-btn"
+                        @click="startReply(item.id)"
+                      >
+                        回复
+                      </a-button>
+                    </div>
 
-                    <div v-if="isAiAnalysesExpanded(item.id)" class="ai-analyses-panel">
-                      <div v-for="aiItem in getAiAnalyses(item.id)" :key="aiItem.id" class="ai-analysis-item">
-                        <div class="ai-analysis-card">
+                    <div v-if="replyingToId === item.id" class="reply-input-area">
+                      <a-textarea
+                        v-model:value="replyInput"
+                        placeholder="请输入回复内容（输入 @子路 可召唤AI助教）"
+                        :rows="3"
+                        :maxlength="1000"
+                        show-count
+                      />
+                      <div class="reply-input-actions">
+                        <a-button size="small" @click="cancelReply">取消</a-button>
+                        <a-button
+                          type="primary"
+                          size="small"
+                          :loading="replySubmitting"
+                          :disabled="!replyInput.trim()"
+                          @click="handleSubmitReply"
+                        >
+                          发表回复
+                        </a-button>
+                      </div>
+                    </div>
+
+                    <div v-if="hasReplies(item.id) && isRepliesExpanded(item.id)" class="replies-panel">
+                      <div
+                        v-for="replyItem in getReplies(item.id)"
+                        :key="replyItem.id"
+                        class="reply-item"
+                      >
+                        <div :class="['reply-card', { 'reply-card-ai': isAiReply(replyItem) }]">
                           <div class="content-header">
                             <div class="content-user">
                               <a-avatar
-                                :src="getContentAvatarUrl(aiItem)"
+                                :src="getContentAvatarUrl(replyItem)"
                                 :size="32"
                                 class="content-avatar"
                               >
-                                {{ getUserInitial(aiItem.user) }}
+                                {{ getUserInitial(replyItem.user) }}
                               </a-avatar>
-                              <div class="content-author">{{ aiItem.user || 'AI助手' }}</div>
+                              <div class="content-author">{{ replyItem.user || '未知用户' }}</div>
+                              <a-tag v-if="isAiReply(replyItem)" color="blue" class="reply-tag">AI</a-tag>
                             </div>
                             <div class="content-meta">
-                              <span>{{ formatDateTime(aiItem.create_time) }}</span>
+                              <span>{{ formatDateTime(replyItem.create_time) }}</span>
+                              <a-popconfirm
+                                v-if="canDeleteContent(replyItem)"
+                                title="确定要删除这条回复吗？"
+                                ok-text="确定"
+                                cancel-text="取消"
+                                @confirm="handleDeleteContent(replyItem.id)"
+                              >
+                                <a-button
+                                  type="link"
+                                  size="small"
+                                  danger
+                                  class="content-delete"
+                                  :loading="deletingContentId === replyItem.id"
+                                >
+                                  删除
+                                </a-button>
+                              </a-popconfirm>
                             </div>
                           </div>
-                          <div class="content-text markdown-body" v-html="renderMarkdown(aiItem.content)"></div>
+                          <div
+                            v-if="isAiReply(replyItem)"
+                            :class="['content-text', 'markdown-body']"
+                            v-html="renderMarkdown(replyItem.content)"
+                          ></div>
+                          <div v-else class="content-text">{{ replyItem.content || '-' }}</div>
                         </div>
                       </div>
                     </div>
@@ -444,8 +505,10 @@ const replyForm = ref({
 })
 
 const mainContents = ref([])
-const aiAnalysesMap = ref({})
-const expandedAiAnalyses = ref(new Set())
+const repliesMap = ref({})
+const expandedReplies = ref(new Set())
+const replyingToId = ref(null)
+const replyInput = ref('')
 
 const canUseAIFeature = computed(() => {
   return userStore.isAuthenticated === true
@@ -609,25 +672,25 @@ function normalizeDiscussionEvaluation(item) {
 
 function groupDiscussionContents(contents) {
   const mainContents = []
-  const aiAnalysesMap = {}
+  const repliesMap = {}
 
   contents.forEach(item => {
     if (!item.quoted_content_id) {
       mainContents.push(item)
     } else {
       const quotedId = item.quoted_content_id
-      if (!aiAnalysesMap[quotedId]) {
-        aiAnalysesMap[quotedId] = []
+      if (!repliesMap[quotedId]) {
+        repliesMap[quotedId] = []
       }
-      aiAnalysesMap[quotedId].push(item)
+      repliesMap[quotedId].push(item)
     }
   })
 
-  Object.keys(aiAnalysesMap).forEach(id => {
-    aiAnalysesMap[id].sort((a, b) => new Date(a.create_time) - new Date(b.create_time))
+  Object.keys(repliesMap).forEach(id => {
+    repliesMap[id].sort((a, b) => new Date(a.create_time) - new Date(b.create_time))
   })
 
-  return { mainContents, aiAnalysesMap }
+  return { mainContents, repliesMap }
 }
 
 function getUserInitial(name) {
@@ -736,29 +799,82 @@ function isExpanded(record) {
   return expandedRowKeys.value.includes(String(record.id))
 }
 
-function hasAiAnalyses(contentId) {
-  return !!aiAnalysesMap.value[contentId] && aiAnalysesMap.value[contentId].length > 0
+function hasReplies(contentId) {
+  return !!repliesMap.value[contentId] && repliesMap.value[contentId].length > 0
 }
 
-function getAiAnalysesCount(contentId) {
-  return aiAnalysesMap.value[contentId]?.length || 0
+function getRepliesCount(contentId) {
+  return repliesMap.value[contentId]?.length || 0
 }
 
-function getAiAnalyses(contentId) {
-  return aiAnalysesMap.value[contentId] || []
+function getReplies(contentId) {
+  return repliesMap.value[contentId] || []
 }
 
-function toggleAiAnalyses(contentId) {
-  console.log('toggleAiAnalyses:', contentId)
-  if (expandedAiAnalyses.value.has(contentId)) {
-    expandedAiAnalyses.value = new Set([...expandedAiAnalyses.value].filter(id => id !== contentId))
+function toggleReplies(contentId) {
+  if (expandedReplies.value.has(contentId)) {
+    expandedReplies.value = new Set([...expandedReplies.value].filter(id => id !== contentId))
   } else {
-    expandedAiAnalyses.value = new Set([...expandedAiAnalyses.value, contentId])
+    expandedReplies.value = new Set([...expandedReplies.value, contentId])
   }
 }
 
-function isAiAnalysesExpanded(contentId) {
-  return expandedAiAnalyses.value.has(contentId)
+function isRepliesExpanded(contentId) {
+  return expandedReplies.value.has(contentId)
+}
+
+function isAiReply(item) {
+  return item.user === 'AI助手'
+}
+
+function startReply(contentId) {
+  replyingToId.value = contentId
+  replyInput.value = ''
+}
+
+function cancelReply() {
+  replyingToId.value = null
+  replyInput.value = ''
+}
+
+async function handleSubmitReply() {
+  if (!selectedDiscussion.value?.id || !replyingToId.value) return
+
+  const content = replyInput.value.trim()
+  if (!content) {
+    message.warning('请输入回复内容')
+    return
+  }
+
+  replySubmitting.value = true
+
+  try {
+    const res = await createDiscussionContent({
+      discussion_id: selectedDiscussion.value.id,
+      content,
+      quoted_content_id: replyingToId.value
+    })
+
+    if (res.code === 200) {
+      message.success('回复成功')
+      // 自动展开该主发言的回复列表
+      const repliedId = String(replyingToId.value)
+      replyingToId.value = null
+      replyInput.value = ''
+      if (!expandedReplies.value.has(repliedId)) {
+        expandedReplies.value = new Set([...expandedReplies.value, repliedId])
+      }
+      await fetchDiscussionContents()
+      return
+    }
+
+    message.error(res.message || '回复失败')
+  } catch (err) {
+    console.error('回复失败:', err)
+    message.error(err.message || '回复失败')
+  } finally {
+    replySubmitting.value = false
+  }
 }
 
 async function fetchDiscussions() {
@@ -794,7 +910,7 @@ async function fetchDiscussionContents() {
   if (!selectedDiscussion.value?.id) {
     discussionContents.value = []
     mainContents.value = []
-    aiAnalysesMap.value = {}
+    repliesMap.value = {}
     return
   }
 
@@ -808,9 +924,9 @@ async function fetchDiscussionContents() {
         ? res.data.map(normalizeDiscussionContent)
         : []
       discussionContents.value = contents
-      const { mainContents: groupedMain, aiAnalysesMap: groupedAi } = groupDiscussionContents(contents)
+      const { mainContents: groupedMain, repliesMap: groupedReplies } = groupDiscussionContents(contents)
       mainContents.value = groupedMain
-      aiAnalysesMap.value = groupedAi
+      repliesMap.value = groupedReplies
       fetchContentAvatars(contents)
       return
     }
@@ -822,7 +938,7 @@ async function fetchDiscussionContents() {
     message.error(contentError.value)
     discussionContents.value = []
     mainContents.value = []
-    aiAnalysesMap.value = {}
+    repliesMap.value = {}
   } finally {
     contentLoading.value = false
   }
@@ -1010,8 +1126,10 @@ function closeExpandedDiscussion() {
   discussionEvaluations.value = []
   evaluationExpanded.value = false
   mainContents.value = []
-  aiAnalysesMap.value = {}
-  expandedAiAnalyses.value = new Set()
+  repliesMap.value = {}
+  expandedReplies.value = new Set()
+  replyingToId.value = null
+  replyInput.value = ''
   replyForm.value.content = ''
 }
 
@@ -1444,6 +1562,15 @@ onMounted(fetchDiscussions)
     width: 100%;
   }
 
+  .reply-input-actions {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .reply-input-actions .ant-btn {
+    width: 100%;
+  }
+
   .content-header {
     flex-direction: column;
     gap: 8px;
@@ -1619,45 +1746,75 @@ onMounted(fetchDiscussions)
   font-size: 13px;
 }
 
-.ai-analyses-section {
+.replies-section {
   margin-top: 8px;
   padding-left: 24px;
 }
 
-.ai-analyses-toggle {
+.replies-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.replies-toggle {
   padding-left: 0;
   color: #1677ff;
   font-size: 13px;
 }
 
-.ai-analyses-panel {
+.reply-btn {
+  padding-left: 0;
+  color: #52c41a;
+  font-size: 13px;
+}
+
+.reply-input-area {
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  border-radius: 6px;
+}
+
+.reply-input-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.replies-panel {
   padding: 8px 0 0 0;
 }
 
-.ai-analysis-item {
+.reply-item {
   padding: 6px 0;
 }
 
-.ai-analysis-card {
+.reply-card {
   width: 100%;
-  padding: 12px 14px;
-  background: #f0f7ff;
-  border-left: 3px solid #1677ff;
+  padding: 10px 14px;
+  background: #fafafa;
+  border-left: 3px solid #d9d9d9;
   border-radius: 4px;
 }
 
-.ai-analysis-card .content-author {
+.reply-card-ai {
+  background: #f0f7ff;
+  border-left-color: #1677ff;
+}
+
+.reply-card-ai .content-author {
   font-size: 14px;
   color: #1677ff;
 }
 
-.ai-analysis-card .content-meta {
-  color: #8c8c8c;
+.reply-tag {
   font-size: 11px;
-}
-
-.ai-analysis-card .content-text {
-  font-size: 13px;
-  color: #3a3a3a;
+  line-height: 16px;
+  margin-left: 4px;
+  padding: 0 4px;
 }
 </style>

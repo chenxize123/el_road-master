@@ -59,6 +59,7 @@
 
     <LoginModal
       v-model:open="loginVisible"
+      :redirect-to="loginRedirect"
       @success="handleLoginSuccess"
     />
 
@@ -78,6 +79,7 @@ const router = useRouter()
 const route = useRoute()
 
 const loginVisible = ref(false)
+const loginRedirect = ref('')
 const guestLoading = ref(false)
 const videoVisible = ref(false)
 const userStore = useUserStore()
@@ -85,6 +87,9 @@ const userStore = useUserStore()
 // 检测 URL 参数是否需要自动打开登录弹窗
 onMounted(() => {
   if (route.query.showLogin === '1') {
+    loginRedirect.value = typeof route.query.redirect === 'string'
+      ? route.query.redirect
+      : ''
     loginVisible.value = true
     // 清除 URL 参数避免刷新后再次打开
     router.replace({ path: '/', query: {} })

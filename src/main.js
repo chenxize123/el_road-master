@@ -8,9 +8,9 @@ import './styles/global.css'
 
 const app = createApp(App)
 
+app.use(pinia)
 app.use(router)
 app.use(Antd)
-app.use(pinia)
 
 // 全局挂载Pinia Store
 app.config.globalProperties.$pinia = pinia

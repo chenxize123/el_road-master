@@ -81,6 +81,10 @@ const props = defineProps({
   open: {
     type: Boolean,
     default: false
+  },
+  redirectTo: {
+    type: String,
+    default: ''
   }
 })
 const router = useRouter()
@@ -94,6 +98,12 @@ const getHomePathByUserType = userType => {
   }
 
   return userTypePathMap[userType] || '/'
+}
+
+const getPostLoginPath = userType => {
+  const redirect = props.redirectTo
+  if (redirect.startsWith('/') && !redirect.startsWith('//')) return redirect
+  return getHomePathByUserType(userType)
 }
 const emit = defineEmits(['update:open', 'success'])
 
@@ -165,7 +175,7 @@ const handleSubmit = async () => {
     emit('success', result)
 
     const userType = userStore.userInfo?.user_type
-    router.push(getHomePathByUserType(userType))
+    router.push(getPostLoginPath(userType))
   } catch (error) {
     message.error(error?.message || '登录失败，请检查账号或密码')
   } finally {
@@ -191,7 +201,7 @@ const handleGuestLogin = async () => {
     emit('success', result)
 
     const userType = userStore.userInfo?.user_type
-    router.push(getHomePathByUserType(userType))
+    router.push(getPostLoginPath(userType))
   } catch (error) {
     message.error(error?.message || '登录失败，请检查账号或密码')
   } finally {

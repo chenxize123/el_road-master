@@ -19,10 +19,6 @@
         <template #icon><DownloadOutlined /></template>
         导出多次成绩
       </a-button>
-      <a-button type="primary" @click="handleCreate">
-        <template #icon><plus-outlined /></template>
-        新建考试
-      </a-button>
     </div>
 
     <!-- 考试列表 -->
@@ -38,9 +34,6 @@
         }"
         description="暂无考试数据"
       >
-        <a-button v-if="isTeacherOrAdmin" type="primary" @click="handleCreate">
-          创建第一个考试
-        </a-button>
       </a-empty>
     </div>
 
@@ -111,6 +104,14 @@
               <a-button type="link" size="small" @click="handleOpenClassReport(record)">
                 班级报告
               </a-button>
+              <a-button
+                v-if="canManagePublish"
+                type="link"
+                size="small"
+                @click="openPublishManager(record)"
+              >
+                管理发布
+              </a-button>
               <template v-if="getExamStatus(record) === 'upcoming'">
                 <a-button type="link" size="small" @click="handleStartNow(record)">
                   立即开始
@@ -121,19 +122,6 @@
                   立即结束
                 </a-button>
               </template>
-              <a-button type="link" size="small" @click="handleEdit(record)">
-                编辑
-              </a-button>
-              <a-popconfirm
-                title="确定要删除这个考试吗？"
-                ok-text="确定"
-                cancel-text="取消"
-                @confirm="handleDelete(record.id)"
-              >
-                <a-button type="link" size="small" danger>
-                  删除
-                </a-button>
-              </a-popconfirm>
             </template>
           </a-space>
         </template>
@@ -586,6 +574,15 @@
       <div v-else-if="reportContent" class="report-content markdown-body" v-html="renderedReportContent"></div>
       <a-empty v-else description="暂无报告内容" />
     </a-drawer>
+
+    <PublishAssignmentModal
+      v-model:open="publishModalVisible"
+      :item="publishRecord"
+      kind="exam"
+      :course-id="courseId || ''"
+      :class-id="props.classId"
+      @updated="fetchExamList"
+    />
   </div>
 </template>
 
@@ -593,12 +590,14 @@
 import { ref, computed, onMounted, h, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { PlusOutlined, DownloadOutlined } from '@ant-design/icons-vue'
+import { DownloadOutlined } from '@ant-design/icons-vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import * as XLSX from 'xlsx'
 import dayjs from 'dayjs'
 import { useUserStore } from '@/store'
+import { hasPublishPermission } from '@/utils/publishPermissions'
+import PublishAssignmentModal from '@/components/course/PublishAssignmentModal.vue'
 import {
   getExamListByClassId,
   createExam,
@@ -631,6 +630,8 @@ const props = defineProps({
 })
 
 const courseId = ref(null)
+const publishModalVisible = ref(false)
+const publishRecord = ref(null)
 const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1200)
 
 // 窗口大小变化监听
@@ -657,6 +658,10 @@ const isTeacherOrAdmin = computed(() => {
   const role = userStore.userInfo?.user_type
   return role === 'teacher' || role === 'admin'
 })
+const canManagePublish = computed(() =>
+  hasPublishPermission(userStore.userInfo, 'exam:publish') ||
+  hasPublishPermission(userStore.userInfo, 'exam:unpublish')
+)
 
 // 统计信息计算 (已优化为基于标准状态)
 // 统计信息计算 (已针对最新的“自动提交”与“缺考”映射完成同步优化)
@@ -985,6 +990,11 @@ const fetchExamList = async () => {
   } finally {
     loading.value = false
   }
+}
+
+function openPublishManager(record) {
+  publishRecord.value = record
+  publishModalVisible.value = true
 }
 
 // 获取所有考试的状态

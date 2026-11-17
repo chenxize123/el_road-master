@@ -5,10 +5,6 @@
         <h3>实验管理</h3>
         <span>{{ experiments.length }} 个实验</span>
       </div>
-      <a-button v-if="isTeacherOrAdmin" type="primary" @click="handleCreate">
-        <template #icon><PlusOutlined /></template>
-        创建实验
-      </a-button>
     </div>
 
     <a-alert
@@ -77,15 +73,14 @@
 
             <template v-if="isTeacherOrAdmin">
               <a-button type="link" size="small" @click="handleOpenResults(record)">提交列表</a-button>
-              <a-button type="link" size="small" @click="handleEdit(record)">编辑</a-button>
-              <a-popconfirm
-                title="确定要删除这个实验吗？"
-                ok-text="确定"
-                cancel-text="取消"
-                @confirm="handleDelete(record.id)"
+              <a-button
+                v-if="canManagePublish"
+                type="link"
+                size="small"
+                @click="openPublishManager(record)"
               >
-                <a-button type="link" size="small" danger>删除</a-button>
-              </a-popconfirm>
+                管理发布
+              </a-button>
             </template>
 
             <template v-else>
@@ -110,9 +105,11 @@
                 v-if="canAnswerQuestions(getStudentResult(record))"
                 type="link"
                 size="small"
+                :disabled="!isQuestionAnswered(getStudentResult(record)) && !isQuestionWindowOpenForResult(getStudentResult(record))"
+                :title="getQuestionAnswerDisabledReason(getStudentResult(record))"
                 @click="handleOpenQuestionAnswer(getStudentResult(record))"
               >
-                {{ isQuestionAnswered(getStudentResult(record)) ? '查看问答' : '代码问答' }}
+                {{ getQuestionAnswerButtonLabel(getStudentResult(record)) }}
               </a-button>
               <a-popconfirm
                 v-if="hasSubmittedResult(record) && !isQuestionAnswered(getStudentResult(record))"
@@ -325,9 +322,49 @@
             </div>
           </div>
         </a-descriptions-item>
+        <a-descriptions-item v-if="isTeacherOrAdmin" label="代码问答开放">
+          <a-space direction="vertical" style="width: 100%">
+            <a-alert
+              v-if="questionWindowByExperiment[detailRecord.id]?.error"
+              type="error"
+              show-icon
+              :message="questionWindowByExperiment[detailRecord.id].error"
+            />
+            <a-space wrap>
+              <a-tag :color="getQuestionWindowColor(questionWindowByExperiment[detailRecord.id])">
+                {{ getQuestionWindowLabel(questionWindowByExperiment[detailRecord.id]) }}
+                <template v-if="getQuestionWindowRemaining(questionWindowByExperiment[detailRecord.id])">
+                  · {{ getQuestionWindowRemaining(questionWindowByExperiment[detailRecord.id]) }}
+                </template>
+              </a-tag>
+              <a-input-number
+                v-model:value="questionWindowDurationMin"
+                :min="1"
+                :max="180"
+                :disabled="questionWindowLoading"
+                addon-after="分钟"
+                style="width: 150px"
+              />
+              <a-button
+                type="primary"
+                :loading="questionWindowLoading"
+                @click="handleOpenQuestionWindow"
+              >
+                开启代码问答
+              </a-button>
+              <a-button
+                danger
+                :loading="questionWindowLoading"
+                @click="handleCloseQuestionWindow"
+              >
+                关闭代码问答
+              </a-button>
+            </a-space>
+          </a-space>
+        </a-descriptions-item>
         <a-descriptions-item label="AI 出题配置">
-          <div v-if="detailRecord.question_config && detailRecord.question_config.types?.length">
-            <div v-for="item in detailRecord.question_config.types" :key="item.type" class="detail-question-config-item">
+          <div v-if="getConfiguredQuestionTypes(detailRecord.question_config).length">
+            <div v-for="item in getConfiguredQuestionTypes(detailRecord.question_config)" :key="item.type" class="detail-question-config-item">
               {{ formatQuestionType(item.type) }}：{{ item.count || 0 }} 道
             </div>
           </div>
@@ -396,10 +433,21 @@
         <a-descriptions-item v-if="resultDetail.analysis?.reason" label="分析理由">
           <div class="analysis-reason">{{ resultDetail.analysis.reason }}</div>
         </a-descriptions-item>
-        <a-descriptions-item v-if="canAnswerQuestions(resultDetail)" label="代码问答">
-          <a-button type="primary" @click="handleOpenQuestionAnswer(resultDetail)">
+        <a-descriptions-item v-if="!isTeacherOrAdmin && canAnswerQuestions(resultDetail)" label="代码问答">
+          <a-button
+            type="primary"
+            :disabled="!isQuestionAnswered(resultDetail) && !isQuestionWindowOpenForResult(resultDetail)"
+            :title="getQuestionAnswerDisabledReason(resultDetail)"
+            @click="handleOpenQuestionAnswer(resultDetail)"
+          >
             {{ isQuestionAnswered(resultDetail) ? '查看问答结果' : '进入问答' }}
           </a-button>
+          <span
+            v-if="!isQuestionAnswered(resultDetail) && !isQuestionWindowOpenForResult(resultDetail)"
+            class="question-window-hint"
+          >
+            {{ getQuestionAnswerDisabledReason(resultDetail) }}
+          </span>
         </a-descriptions-item>
         <a-descriptions-item label="内容">
           <pre class="code-preview">{{ resultDetail.code || '-' }}</pre>
@@ -474,6 +522,14 @@
               {{ formatQuestionState(record) }}
             </a-tag>
           </template>
+          <template v-else-if="column.key === 'question_window_status'">
+            <a-tag :color="getQuestionWindowColor(currentQuestionWindowStatus)">
+              {{ getQuestionWindowLabel(currentQuestionWindowStatus) }}
+              <template v-if="getQuestionWindowRemaining(currentQuestionWindowStatus)">
+                · {{ getQuestionWindowRemaining(currentQuestionWindowStatus) }}
+              </template>
+            </a-tag>
+          </template>
           <template v-else-if="column.key === 'actions'">
             <a-space>
               <a-button type="link" size="small" @click="handleViewResult(record)">查看</a-button>
@@ -492,6 +548,15 @@
         </template>
       </a-table>
     </a-drawer>
+
+    <PublishAssignmentModal
+      v-model:open="publishModalVisible"
+      :item="publishRecord"
+      kind="experiment"
+      :course-id="props.courseId"
+      :class-id="props.classId"
+      @updated="fetchExperiments"
+    />
   </div>
 </template>
 
@@ -500,8 +565,10 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { message, Upload } from 'ant-design-vue'
-import { PlusOutlined, UploadOutlined } from '@ant-design/icons-vue'
+import { UploadOutlined } from '@ant-design/icons-vue'
 import { useUserStore } from '@/store'
+import { hasPublishPermission } from '@/utils/publishPermissions'
+import PublishAssignmentModal from '@/components/course/PublishAssignmentModal.vue'
 import {
   deleteExperimentAttachmentApi,
   deleteExperimentResultAttachmentApi,
@@ -524,11 +591,27 @@ import {
   getExperimentsByClassId,
   updateExperiment
 } from '@/api/experiment'
+import {
+  closeExperimentQuestionWindowApi,
+  getExperimentQuestionWindowApi,
+  openExperimentQuestionWindowApi
+} from '@/api/experimentQuestionWindow'
+import {
+  canEnterExperimentQuestionAnswer,
+  formatQuestionWindowRemaining,
+  getQuestionWindowLabel as getQuestionWindowLabelValue,
+  isQuestionWindowOpen,
+  normalizeQuestionWindowStatus
+} from '@/utils/experimentQuestionWindow'
 
 const props = defineProps({
   classId: {
     type: [String, Number],
     required: true
+  },
+  courseId: {
+    type: [String, Number],
+    default: ''
   },
   loading: {
     type: Boolean,
@@ -542,6 +625,8 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const experiments = ref([])
+const publishModalVisible = ref(false)
+const publishRecord = ref(null)
 const modalVisible = ref(false)
 const editingRecord = ref(null)
 const formRef = ref(null)
@@ -570,6 +655,13 @@ const resultForm = ref({ code: '', code_file: null, code_file_name: null })
 const studentResultsLoading = ref(false)
 const studentResults = ref([])
 const studentResultMap = ref({})
+const questionWindowByExperiment = ref({})
+const questionWindowDurationMin = ref(30)
+const questionWindowLoading = ref(false)
+const questionWindowNow = ref(Date.now())
+let questionWindowRefreshTimer
+let questionWindowClockTimer
+let isRefreshingQuestionWindows = false
 
 const resultDetailVisible = ref(false)
 const resultDetailLoading = ref(false)
@@ -583,11 +675,19 @@ const resultsDrawerVisible = ref(false)
 const resultsLoading = ref(false)
 const experimentResults = ref([])
 const viewportWidth = ref(typeof window === 'undefined' ? 1200 : window.innerWidth)
+const currentQuestionWindowStatus = computed(() => {
+  const experimentId = normalizeId(currentExperiment.value?.id)
+  return experimentId ? questionWindowByExperiment.value[experimentId] : null
+})
 
 const isTeacherOrAdmin = computed(() => {
   const role = userStore.userInfo?.user_type
   return role === 'teacher' || role === 'admin'
 })
+const canManagePublish = computed(() =>
+  hasPublishPermission(userStore.userInfo, 'experiment:publish') ||
+  hasPublishPermission(userStore.userInfo, 'experiment:unpublish')
+)
 
 const currentUserId = computed(() => {
   const userInfo = userStore.userInfo || {}
@@ -604,8 +704,8 @@ const tableScrollX = computed(() => {
 })
 
 const resultTableScrollX = computed(() => {
-  if (isMobileViewport.value) return 1010
-  return 1180
+  if (isMobileViewport.value) return 1160
+  return 1330
 })
 
 const modalWidth = computed(() => {
@@ -665,6 +765,7 @@ const resultColumns = [
   { title: '最终得分', dataIndex: 'final_score', key: 'final_score', width: 110 },
   { title: '代码得分', key: 'analysis_score', width: 110 },
   { title: '问答状态', key: 'question_state', width: 110 },
+  { title: '问答开放状态', key: 'question_window_status', width: 150 },
   { title: '操作', key: 'actions', width: 140, fixed: 'right' }
 ]
 
@@ -704,7 +805,16 @@ function normalizeId(id) {
 
 function normalizeQuestionConfig(rawConfig) {
   const base = getDefaultQuestionConfig()
-  const config = rawConfig && typeof rawConfig === 'object' ? rawConfig : {}
+  let config = rawConfig
+  if (typeof config === 'string') {
+    try {
+      config = JSON.parse(config)
+    } catch (error) {
+      console.error('解析实验出题配置失败:', error)
+      return base
+    }
+  }
+  config = config && typeof config === 'object' ? config : {}
 
   if (Array.isArray(config.types)) {
     config.types.forEach((item) => {
@@ -749,6 +859,23 @@ function formatQuestionType(type) {
   return labels[type] || type || '未知题型'
 }
 
+function getConfiguredQuestionTypes(rawConfig) {
+  let config = rawConfig
+  if (typeof config === 'string') {
+    try {
+      config = JSON.parse(config)
+    } catch (error) {
+      console.error('解析实验出题配置失败:', error)
+      return []
+    }
+  }
+  if (Array.isArray(config?.types)) return config.types
+  if (!config || typeof config !== 'object') return []
+  return Object.entries(config)
+    .filter(([type, count]) => Object.prototype.hasOwnProperty.call(getDefaultQuestionConfig(), type) && Number(count) > 0)
+    .map(([type, count]) => ({ type, count: Number(count) }))
+}
+
 const totalQuestionCount = computed(() => {
   return Object.values(questionConfig.value || {}).reduce((sum, value) => sum + (Number(value) || 0), 0)
 })
@@ -761,7 +888,7 @@ function normalizeExperiment(item) {
     explanation: item?.explanation || '',
     explanation_file: item?.explanation_file ?? null,
     explanation_file_name: item?.explanation_file_name ?? null,
-    question_config: normalizeQuestionConfig(item?.question_config ?? getDefaultQuestionConfig()),
+    question_config: item?.question_config ?? null,
     score: item?.score ?? 0,
     start_time: item?.start_time || '',
     end_time: item?.end_time || '',
@@ -873,6 +1000,137 @@ function extractDetailData(res) {
   return res?.data?.data ?? res?.data ?? res ?? {}
 }
 
+async function loadQuestionWindowStatus(experimentId) {
+  const id = normalizeId(experimentId)
+  if (!id) throw new Error('缺少实验 ID，无法获取代码问答状态')
+
+  try {
+    const response = await getExperimentQuestionWindowApi(id)
+    if (response?.code !== undefined && Number(response.code) !== 200) {
+      throw new Error(response.message || '获取代码问答开放状态失败')
+    }
+    const status = normalizeQuestionWindowStatus(response, questionWindowNow.value)
+    questionWindowByExperiment.value = {
+      ...questionWindowByExperiment.value,
+      [id]: status
+    }
+    return status
+  } catch (statusError) {
+    questionWindowByExperiment.value = {
+      ...questionWindowByExperiment.value,
+      [id]: { error: statusError.message || '获取代码问答开放状态失败' }
+    }
+    throw statusError
+  }
+}
+
+async function refreshStudentQuestionWindowStatuses() {
+  if (isRefreshingQuestionWindows || isTeacherOrAdmin.value) return
+  const experimentIds = [...new Set(studentResults.value
+    .filter(result =>
+      hasResultCode(result) &&
+      hasQuestionResult(result) &&
+      Number(result.analysis?.score) >= 80 &&
+      !isQuestionAnswered(result)
+    )
+    .map(result => normalizeId(result.experiment_id))
+    .filter(Boolean))]
+  if (!experimentIds.length) return
+
+  const previouslyFailedIds = new Set(experimentIds.filter(
+    experimentId => questionWindowByExperiment.value[experimentId]?.error
+  ))
+  isRefreshingQuestionWindows = true
+  try {
+    const results = await Promise.allSettled(
+      experimentIds.map(experimentId => loadQuestionWindowStatus(experimentId))
+    )
+    const newFailureCount = results.filter((result, index) =>
+      result.status === 'rejected' && !previouslyFailedIds.has(experimentIds[index])
+    ).length
+    if (newFailureCount) {
+      message.error(`有 ${newFailureCount} 个实验的代码问答开放状态暂时无法获取，请稍后重试`)
+    }
+  } finally {
+    isRefreshingQuestionWindows = false
+  }
+}
+
+async function handleOpenQuestionWindow() {
+  const experimentId = normalizeId(detailRecord.value?.id)
+  const durationMin = Number(questionWindowDurationMin.value)
+  if (!experimentId) {
+    message.error('缺少实验 ID，无法开启代码问答')
+    return
+  }
+  if (!Number.isInteger(durationMin) || durationMin < 1 || durationMin > 180) {
+    message.warning('开放时长需为 1 至 180 分钟')
+    return
+  }
+
+  questionWindowLoading.value = true
+  try {
+    const response = await openExperimentQuestionWindowApi(experimentId, durationMin)
+    if (response?.code !== undefined && Number(response.code) !== 200) {
+      throw new Error(response.message || '开启代码问答失败')
+    }
+    let statusRefreshError = ''
+    try {
+      await loadQuestionWindowStatus(experimentId)
+    } catch (statusError) {
+      statusRefreshError = statusError.message || '获取代码问答开放状态失败'
+      console.error('刷新代码问答开放状态失败:', statusError)
+    }
+    message.success(`代码问答已开放 ${durationMin} 分钟`)
+    if (statusRefreshError) {
+      message.warning(`开放操作已成功，但状态刷新失败：${statusRefreshError}`)
+    }
+    if (resultsDrawerVisible.value && normalizeId(currentExperiment.value?.id) === experimentId) {
+      await fetchExperimentResults(experimentId)
+    }
+  } catch (openError) {
+    console.error('开启代码问答失败:', openError)
+    message.error(openError.message || '开启代码问答失败')
+  } finally {
+    questionWindowLoading.value = false
+  }
+}
+
+async function handleCloseQuestionWindow() {
+  const experimentId = normalizeId(detailRecord.value?.id)
+  if (!experimentId) {
+    message.error('缺少实验 ID，无法关闭代码问答')
+    return
+  }
+
+  questionWindowLoading.value = true
+  try {
+    const response = await closeExperimentQuestionWindowApi(experimentId)
+    if (response?.code !== undefined && Number(response.code) !== 200) {
+      throw new Error(response.message || '关闭代码问答失败')
+    }
+    questionWindowByExperiment.value = {
+      ...questionWindowByExperiment.value,
+      [experimentId]: {
+        question_open: false,
+        within_window: false,
+        remaining_sec: 0,
+        closed: true,
+        fetched_at: questionWindowNow.value
+      }
+    }
+    message.success('代码问答已关闭')
+    if (resultsDrawerVisible.value && normalizeId(currentExperiment.value?.id) === experimentId) {
+      await fetchExperimentResults(experimentId)
+    }
+  } catch (closeError) {
+    console.error('关闭代码问答失败:', closeError)
+    message.error(closeError.message || '关闭代码问答失败')
+  } finally {
+    questionWindowLoading.value = false
+  }
+}
+
 function normalizeTitle(value) {
   return String(value || '').trim()
 }
@@ -913,11 +1171,56 @@ function hasQuestionResult(record) {
 }
 
 function canAnswerQuestions(record) {
-  return hasResultCode(record) && hasQuestionResult(record) && !isCodeScoreFailed(record)
+  if (!hasResultCode(record) || !hasQuestionResult(record)) return false
+  return isQuestionAnswered(record) || Number(record.analysis?.score) >= 80
+}
+
+function isQuestionWindowOpenForResult(record) {
+  return isQuestionWindowOpen(
+    questionWindowByExperiment.value[normalizeId(record?.experiment_id)],
+    questionWindowNow.value
+  )
+}
+
+function getQuestionAnswerDisabledReason(record) {
+  if (isQuestionAnswered(record)) return ''
+  const status = questionWindowByExperiment.value[normalizeId(record?.experiment_id)]
+  if (status?.error) return '问答开放状态暂时无法获取'
+  if (!status || getQuestionWindowLabelValue(status, questionWindowNow.value) === '未开启') {
+    return '教师尚未开启问答'
+  }
+  return '问答已结束'
+}
+
+function getQuestionAnswerButtonLabel(record) {
+  if (isQuestionAnswered(record)) return '查看问答'
+  const status = questionWindowByExperiment.value[normalizeId(record?.experiment_id)]
+  if (!isQuestionWindowOpen(status, questionWindowNow.value)) {
+    return getQuestionAnswerDisabledReason(record)
+  }
+  const remaining = getQuestionWindowRemaining(status)
+  return remaining ? `代码问答 · ${remaining}` : '代码问答'
+}
+
+function getQuestionWindowRemaining(status) {
+  return formatQuestionWindowRemaining(status, questionWindowNow.value)
+}
+
+function getQuestionWindowLabel(status) {
+  if (status?.error) return '状态获取失败'
+  return getQuestionWindowLabelValue(status, questionWindowNow.value)
+}
+
+function getQuestionWindowColor(status) {
+  const label = getQuestionWindowLabel(status)
+  if (label === '进行中') return 'green'
+  if (label === '已结束') return 'default'
+  if (label === '状态获取失败') return 'red'
+  return 'orange'
 }
 
 function isQuestionAnswered(record) {
-  return record?.question_state === '已回答'
+  return record?.question_state === '已回答' || record?.question_state === '已批改'
 }
 
 function isCodeScoreFailed(record) {
@@ -1051,6 +1354,7 @@ async function fetchStudentResults() {
     console.log('[结果] 归一化后:', results)
     rebuildStudentResultMap(results)
     console.log('[结果] studentResultMap:', studentResultMap.value)
+    await refreshStudentQuestionWindowStatuses()
   } catch (err) {
     console.error('获取实验提交记录失败:', err)
     message.error(err.message || '获取实验提交记录失败')
@@ -1068,6 +1372,11 @@ function handleCreate() {
   explanationMode.value = 'text'
   attachmentFileList.value = []
   modalVisible.value = true
+}
+
+function openPublishManager(record) {
+  publishRecord.value = record
+  publishModalVisible.value = true
 }
 
 function handleEdit(record) {
@@ -1103,6 +1412,14 @@ async function handleView(record) {
     message.error(err.message || '获取实验详情失败')
   } finally {
     detailLoading.value = false
+  }
+
+  if (isTeacherOrAdmin.value) {
+    try {
+      await loadQuestionWindowStatus(record.id)
+    } catch (statusError) {
+      console.error('获取实验代码问答状态失败:', statusError)
+    }
   }
 
   try {
@@ -1530,6 +1847,14 @@ async function handleViewResult(record) {
     resultDetailLoading.value = false
   }
 
+  if (!isTeacherOrAdmin.value && !isQuestionAnswered(resultDetail.value)) {
+    try {
+      await loadQuestionWindowStatus(resultDetail.value.experiment_id)
+    } catch (statusError) {
+      console.error('获取代码问答开放状态失败:', statusError)
+    }
+  }
+
   try {
     const res = await getExperimentResultAttachmentsApi(record.id)
     if (res?.code !== undefined && Number(res.code) !== 200) {
@@ -1548,13 +1873,41 @@ async function handleViewResult(record) {
 
 function handleOpenQuestionAnswer(record) {
   if (!record?.id) return
-  router.push(`/experiment/question-answer/${normalizeId(record.id)}`)
+  if (isQuestionAnswered(record)) {
+    router.push(`/experiment/question-answer/${normalizeId(record.id)}`)
+    return
+  }
+
+  const experimentId = normalizeId(record.experiment_id)
+  if (!experimentId || Number(record.analysis?.score) < 80 || !hasQuestionResult(record)) {
+    message.warning('代码得分需达到 80 分且已生成问答题目后才能进入')
+    return
+  }
+
+  loadQuestionWindowStatus(experimentId)
+    .then(status => {
+      if (!canEnterExperimentQuestionAnswer(record, status, questionWindowNow.value)) {
+        message.info(getQuestionAnswerDisabledReason(record))
+        return
+      }
+      router.push(`/experiment/question-answer/${normalizeId(record.id)}`)
+    })
+    .catch(statusError => {
+      console.error('检查代码问答开放状态失败:', statusError)
+      message.error(statusError.message || '检查代码问答开放状态失败')
+    })
 }
 
 async function handleOpenResults(record) {
   currentExperiment.value = record
   resultsDrawerVisible.value = true
   await fetchExperimentResults(record.id)
+  try {
+    await loadQuestionWindowStatus(record.id)
+  } catch (statusError) {
+    console.error('获取实验代码问答状态失败:', statusError)
+    message.error(statusError.message || '获取代码问答开放状态失败')
+  }
 }
 
 async function fetchExperimentResults(experimentId) {
@@ -1622,12 +1975,22 @@ onMounted(() => {
   fetchExperiments()
   if (typeof window !== 'undefined') {
     window.addEventListener('resize', handleResize)
+    questionWindowClockTimer = window.setInterval(() => {
+      questionWindowNow.value = Date.now()
+    }, 1000)
+    if (!isTeacherOrAdmin.value) {
+      questionWindowRefreshTimer = window.setInterval(() => {
+        refreshStudentQuestionWindowStatuses()
+      }, 15000)
+    }
   }
 })
 
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('resize', handleResize)
+    window.clearInterval(questionWindowRefreshTimer)
+    window.clearInterval(questionWindowClockTimer)
   }
 })
 </script>
@@ -1692,6 +2055,12 @@ onBeforeUnmount(() => {
   color: #ff4d4f;
   font-size: 12px;
   line-height: 1.4;
+}
+
+.question-window-hint {
+  margin-left: 8px;
+  color: #8c8c8c;
+  font-size: 12px;
 }
 
 .action-space {

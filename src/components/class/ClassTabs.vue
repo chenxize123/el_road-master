@@ -79,6 +79,7 @@ import {
   BookOutlined,
   CommentOutlined,
   ExperimentOutlined,
+  FolderOpenOutlined,
   DownOutlined,
   CloseOutlined
 } from '@ant-design/icons-vue'
@@ -89,6 +90,12 @@ const defaultTabs = [
     key: 'basic',
     label: '基本信息',
     icon: InfoCircleOutlined,
+    visible: true // 所有人可见
+  },
+  {
+    key: 'course-resource',
+    label: '课程资料',
+    icon: FolderOpenOutlined,
     visible: true // 所有人可见
   },
   {
@@ -142,7 +149,8 @@ const tabKeyToControllerField = {
   exam: 'exam',
   experiment: 'experimental_code_evaluation',
   literature: 'research_planning',
-  discussion: 'discussion_forum'
+  discussion: 'discussion_forum',
+  'course-resource': 'course_resource'
 }
 
 const props = defineProps({

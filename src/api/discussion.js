@@ -29,6 +29,7 @@ import api from './index'
  * @typedef {Object} CreateDiscussionContentParams
  * @property {string | number} discussion_id 讨论 ID
  * @property {string} content 内容
+ * @property {string | number} [quoted_content_id] 回复的目标讨论内容 ID（回复某条发言时传入）
  */
 
 /**
@@ -65,7 +66,9 @@ export function getDiscussionsByClassId(classId) {
 export function createDiscussionContent(data) {
   return api.post('/discussion/content/', {
     discussion_id: String(data.discussion_id),
-    content: data.content
+    content: data.content,
+    ...(data.quoted_content_id !== undefined && data.quoted_content_id !== null
+      && { quoted_content_id: String(data.quoted_content_id) })
   })
 }
 

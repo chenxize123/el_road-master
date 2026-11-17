@@ -65,6 +65,14 @@
             :loading="loading"
           />
         </template>
+        <!-- 课程资料模块 -->
+        <template #course-resource>
+          <CourseResourceModule
+            :course-id="classInfo?.course_id || classInfo?.courseId || ''"
+            :editable="false"
+          />
+        </template>
+
         <!-- 课程视频模块 -->
         <template #video>
           <ClassVideoModule
@@ -87,6 +95,7 @@
         <template #experiment>
           <ClassExperimentModule
             :class-id="classId"
+            :course-id="classInfo?.course_id || classInfo?.courseId || ''"
             :loading="loading"
           />
         </template>
@@ -131,6 +140,7 @@ import ClassKnowledgeGraphModule from '@/components/class/modules/ClassKnowledge
 import ClassVideoModule from '@/components/class/modules/ClassVideoModule.vue'
 import ClassDiscussionModule from '@/components/class/modules/ClassDiscussionModule.vue'
 import ClassLiteratureModule from '@/components/class/modules/ClassLiteratureModule.vue'
+import CourseResourceModule from '@/components/course/CourseResourceModule.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -164,7 +174,8 @@ const defaultClassController = {
   knowledge_graph: true,
   experimental_code_evaluation: true,
   discussion_forum: true,
-  research_planning: true
+  research_planning: true,
+  course_resource: true
 }
 
 function normalizeClassController(controller = {}) {

@@ -17,7 +17,40 @@ export function getExamList(courseId) {
 
 // 获取班级考试列表
 export function getExamListByClassId(classId) {
-  return courseService.request(`/exam/class_id?class_id=${classId}`, {
+  return courseService.request(`/exam/class_published/${encodeURIComponent(String(classId))}`, {
+    method: 'GET'
+  })
+}
+
+export function getExamsByCourseId(courseId) {
+  return courseService.request(`/exam/course/${encodeURIComponent(String(courseId))}`, {
+    method: 'GET'
+  })
+}
+
+export function publishExam(data) {
+  return courseService.request('/exam/publish', {
+    method: 'POST',
+    body: JSON.stringify({
+      exam_id: String(data.exam_id),
+      class_ids: (data.class_ids || []).map(String),
+      publish_time: data.publish_time || null
+    })
+  })
+}
+
+export function unpublishExam(data) {
+  return courseService.request('/exam/unpublish', {
+    method: 'POST',
+    body: JSON.stringify({
+      exam_id: String(data.exam_id),
+      class_id: String(data.class_id)
+    })
+  })
+}
+
+export function getExamPublishes(examId) {
+  return courseService.request(`/exam/publishes/${encodeURIComponent(String(examId))}`, {
     method: 'GET'
   })
 }

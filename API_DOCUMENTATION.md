@@ -16,6 +16,8 @@ This document provides a comprehensive overview of all backend API methods avail
 10. [Student Exam APIs](#student-exam-apis)
 11. [Paper Detail APIs](#paper-detail-apis)
 12. [Experiment Attachment APIs](#experiment-attachment-apis)
+13. [Course Video Management API Proposal](#course-video-management-api-proposal)
+14. [Course Experiment and Exam Publishing APIs](#course-experiment-and-exam-publishing-apis)
 
 ---
 
@@ -129,6 +131,10 @@ Located in: `src/api/course.js`
 - **`getCourseVideosApi(courseId)`** → `GET /course/{courseId}/videos`
   - Gets list of videos for a course
 
+### Persistent Course Video Management (Proposed)
+
+The current frontend API supports listing, playback URL retrieval, and upload only. Persistent reordering and deletion require backend support. See [Course Video Management API Proposal](./docs/course-video-management-api.md) for the proposed endpoints, authorization rules, validation, and response examples.
+
 ### AI Question Generation
 
 - **`generateGapFillQuestion(pointList)`** → `POST /llm/gap_fill`
@@ -142,6 +148,72 @@ Located in: `src/api/course.js`
 
 - **`generateMultipleChoiceQuestion(pointList)`** → `POST /llm/multiple_choice`
   - Generates multiple choice questions
+
+### Course Experiment and Exam Publishing APIs
+
+These endpoints manage course-level experiment/exam templates and class-specific publication records. The frontend obtains publication targets by course, not by the current user's class list, so classes created by other teachers for the same course are included.
+
+| Method | Route | Description |
+| --- | --- | --- |
+| `GET` | `/experiment/course/{course_id}` | List course experiment templates, including draft templates |
+| `GET` | `/class/user_id?course_id={course_id}` | List classes belonging to a course for publication targets |
+| `GET` | `/experiment/class_published/{class_id}` | List experiments published to a class |
+| `POST` | `/experiment/publish` | Publish an experiment to multiple classes, immediately or at a scheduled time |
+| `POST` | `/experiment/unpublish` | Cancel an experiment publication for one class |
+| `GET` | `/experiment/publishes/{experiment_id}` | List class publication records for an experiment |
+| `GET` | `/exam/course/{course_id}` | List course exam templates |
+| `GET` | `/exam/class_published/{class_id}` | List exams published to a class |
+| `POST` | `/exam/publish` | Publish an exam to multiple classes, immediately or at a scheduled time |
+| `POST` | `/exam/unpublish` | Cancel an exam publication for one class |
+| `GET` | `/exam/publishes/{exam_id}` | List class publication records for an exam |
+
+Create experiment templates with `course_id`; `class_id` is no longer selected in the course-level form. `question_config` is optional and contains a `types` array, for example:
+
+```json
+{
+  "types": [
+    { "type": "single_choice", "label": "单选题", "count": 3 },
+    { "type": "multiple_choice", "label": "多选题", "count": 2 },
+    { "type": "true_or_false", "label": "判断题", "count": 2 },
+    { "type": "gap_fill", "label": "填空题", "count": 2 },
+    { "type": "short_answer", "label": "简答题", "count": 1 }
+  ]
+}
+```
+
+The publish request is the same shape for experiments and exams (use `exam_id` for exams):
+
+```json
+{
+  "experiment_id": "7487411944241143808",
+  "class_ids": ["7457968331845443585", "7457968331845443586"],
+  "publish_time": null
+}
+```
+
+`publish_time: null` publishes immediately; otherwise it is a future ISO datetime such as `2026-11-05T10:00:00`. The response `data` is an array of publication records containing `id`, item ID, `class_id`, `class_title`, `status`, `scheduled_publish_at`, and `actual_publish_at`. Expected statuses are `published`, `scheduled`, and `unpublished`.
+
+The corresponding unpublish body contains the item ID and one `class_id`, for example:
+
+```json
+{
+  "experiment_id": "7487411944241143808",
+  "class_id": "7457968331845443585"
+}
+```
+
+Class publication endpoints should only return published, currently active records to students; teacher/admin responses may include publication status metadata for management. The backend must enforce course ownership and publication permissions, regardless of frontend role-based controls.
+
+The frontend displays publication controls only when the logged-in teacher has the matching permission:
+
+| Permission code | UI control |
+| --- | --- |
+| `experiment:publish` | Publish an experiment |
+| `experiment:unpublish` | Cancel an experiment publication |
+| `exam:publish` | Publish an exam |
+| `exam:unpublish` | Cancel an exam publication |
+
+Students and admins do not receive these publication controls. Backend authorization remains authoritative.
 
 ### Utility Functions
 
@@ -157,9 +229,9 @@ Located in: `src/api/class.js`
 
 ### Class Operations
 
-- **`getClassListApi(params)`** → `GET /class/user_id`
-  - Gets class list with optional pagination
-  - **Parameters**: `{ page, page_size }`
+- **`getClassList(params)`** → `GET /class/user_id`
+  - Gets a class list, optionally filtered by `course_id`.
+  - **Parameters**: `{ course_id, page, page_size }`; the backend requires `page` and `page_size`.
 
 - **`createClassApi(data)`** → `POST /class/`
   - Creates new class
@@ -178,12 +250,12 @@ Located in: `src/api/class.js`
 
 - **`getStudentClassListApi(params)`** → `GET /class/user_id`
   - Gets classes that student has joined
-  - **Parameters**: Optional pagination `{ page, page_size }`
+  - **Parameters**: `{ page, page_size }`; the backend requires both pagination parameters.
 
 ### Course-Connected APIs
 
-- **`getClassListByCourseId(courseId)`** → `GET /class/course_id?course_id={courseId}`
-  - Gets classes for a specific course
+- **`getClassList({ course_id, page, page_size })`** → `GET /class/user_id?course_id={course_id}&page={page}&page_size={page_size}`
+  - Gets classes for a specific course when selecting publication targets. The backend requires both pagination parameters.
 
 ---
 
@@ -390,6 +462,18 @@ The frontend uses the eight experiment attachment routes below. Upload requests 
 Upload responses contain `{ data: { object_name, file_name } }`; list responses contain `{ data: [{ object_name, file_name, size }] }`. Download responses contain `{ data: "https://...signed-url..." }`. Delete responses contain `{ data: { id: object_name } }`.
 
 Teacher experiments use `explanation` for text mode or `explanation_file` and `explanation_file_name` for attachment mode. Student submissions use `code` for text mode or `code_file` and `code_file_name` for file mode. The create experiment and create result routes must return the new record ID in `data.id` (or the corresponding `experiment_id` / `experiment_result_id`) so uploads can be associated with that record.
+
+### Experiment Question-Answer Window
+
+Located in: `src/api/experimentQuestionWindow.js`
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET` | `/question-status?experiment_id={id}` | Return whether the experiment's question-answer window is active and `remaining_sec` |
+| `POST` | `/question-open?experiment_id={id}&duration_min={minutes}` | Open the window for 1-180 minutes |
+| `POST` | `/question-close?experiment_id={id}` | Close the window immediately |
+
+The status response should include `question_open`, `within_window`, and `remaining_sec`; include `opened_at`, `closed`, or `ended` to distinguish a manually closed window from one that has never been opened. Students may enter unanswered code Q&A only when their analysis score is at least 80 and `within_window` is true. Completed answers remain available for review after the window closes.
 
 The frontend accepts PDF, Word, Excel, PowerPoint, and TXT files up to 512MB each; the backend and reverse proxy must allow the same maximum upload size. Students need permission to list and download experiment attachments for classes they belong to, while result attachment access should be limited to the submitting student and authorized class teachers/admins.
 

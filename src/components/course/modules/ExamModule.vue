@@ -9,8 +9,8 @@
   <div class="exam-module">
     <!-- 操作栏 -->
     <div class="action-bar">
-      <a-button type="primary" @click="handleCreate">
-        <template #icon><plus-outlined /></template>
+      <a-button v-if="canManage" type="primary" @click="handleCreate">
+        <template #icon><PlusOutlined /></template>
         新建考试
       </a-button>
     </div>
@@ -22,11 +22,26 @@
       :loading="loading"
       :pagination="pagination"
       row-key="id"
+      :scroll="{ x: 1200 }"
     >
       <!-- 操作列 -->
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'actions'">
-          <a-space>
+          <a-space v-if="canManage" wrap>
+            <a-button
+              type="link"
+              size="small"
+              @click="openPublish(record, 'publish')"
+            >
+              发布到班级
+            </a-button>
+            <a-button
+              type="link"
+              size="small"
+              @click="openPublish(record, 'manage')"
+            >
+              管理发布
+            </a-button>
             <template v-if="getExamStatus(record) === 'upcoming'">
               <a-button type="link" size="small" @click="handleStartNow(record)">
                 立即开始
@@ -127,30 +142,6 @@
           </a-col>
         </a-row>
 
-        <a-form-item label="选择班级" name="class_id" required>
-          <a-select
-            v-model:value="formData.class_id"
-            placeholder="请选择班级"
-            :loading="classLoading"
-            @focus="loadClassList"
-          >
-            <a-select-option
-              v-for="item in classList"
-              :key="item.id"
-              :value="item.id"
-            >
-              <div class="class-option">
-                <div class="class-title">{{ item.title }}</div>
-                <div class="class-info">
-                  <span>教师: {{ item.teacher }}</span>
-                  <span>状态: {{ item.status }}</span>
-                  <span>时间: {{ item.start_time }} ~ {{ item.end_time }}</span>
-                </div>
-              </div>
-            </a-select-option>
-          </a-select>
-        </a-form-item>
-
         <a-form-item label="选择试卷" name="paper_id" required>
           <a-select
             v-model:value="formData.paper_id"
@@ -176,30 +167,35 @@
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <PublishAssignmentModal
+      v-model:open="publishVisible"
+      :item="publishingRecord"
+      kind="exam"
+      :mode="publishDialogMode"
+      :course-id="courseId"
+      @updated="fetchDataList"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, h } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { PlusOutlined } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
+import { computed } from 'vue'
+import { PlusOutlined } from '@ant-design/icons-vue'
+import { useUserStore } from '@/store'
 import {
-  getExamList,
+  getExamsByCourseId,
   createExam,
   updateExam,
   deleteExam
 } from '@/api/exam'
 import {
-  getClassListByCourseId
-} from '@/api/class'
-import {
   getExamPaperList
 } from '@/api/examPaper'
-
-const router = useRouter()
-const route = useRoute()
+import PublishAssignmentModal from '@/components/course/PublishAssignmentModal.vue'
 
 const props = defineProps({
   courseId: {
@@ -208,14 +204,19 @@ const props = defineProps({
   }
 })
 
+const userStore = useUserStore()
+const canManage = computed(() => ['admin', 'teacher'].includes(userStore.userInfo?.user_type))
+
 // 状态
 const loading = ref(false)
 const saving = ref(false)
 const dataList = ref([])
 const modalVisible = ref(false)
 const editingRecord = ref(null)
-const classLoading = ref(false)
 const paperLoading = ref(false)
+const publishVisible = ref(false)
+const publishingRecord = ref(null)
+const publishDialogMode = ref('manage')
 
 // 表单数据和引用
 const formRef = ref(null)
@@ -226,12 +227,10 @@ const formData = ref({
   passing_score: undefined,
   start_time: null,
   end_time: null,
-  class_id: undefined,
   paper_id: undefined
 })
 
 // 下拉选项数据
-const classList = ref([])
 const paperList = ref([])
 
 // 分页配置
@@ -305,6 +304,16 @@ const columns = [
     }
   },
   {
+    title: '发布状态',
+    key: 'publish_status',
+    width: 140,
+    customRender: ({ record }) => {
+      const count = Number(record.publish_count || 0)
+      const text = record.publish_status || (count > 0 ? `已发布（${count}）` : '未发布')
+      return h('a-tag', { color: count > 0 ? 'green' : 'default' }, () => text)
+    }
+  },
+  {
     title: '创建时间',
     dataIndex: 'createdAt',
     key: 'createdAt'
@@ -312,7 +321,7 @@ const columns = [
   {
     title: '操作',
     key: 'actions',
-    width: 280,
+    width: 420,
     fixed: 'right'
   }
 ]
@@ -324,7 +333,6 @@ const formRules = {
   passing_score: [{ required: true, message: '请输入及格分数', trigger: 'blur' }],
   start_time: [{ required: true, message: '请选择开始时间', trigger: 'change' }],
   end_time: [{ required: true, message: '请选择结束时间', trigger: 'change' }],
-  class_id: [{ required: true, message: '请选择班级', trigger: 'change' }],
   paper_id: [{ required: true, message: '请选择试卷', trigger: 'change' }]
 }
 
@@ -332,7 +340,7 @@ const formRules = {
 const fetchDataList = async () => {
   loading.value = true
   try {
-    const res = await getExamList(props.courseId)
+    const res = await getExamsByCourseId(props.courseId)
     if (res.code === 200) {
       dataList.value = Array.isArray(res.data) ? res.data : []
       pagination.value.total = dataList.value.length
@@ -344,26 +352,6 @@ const fetchDataList = async () => {
     message.error('获取考试列表失败')
   } finally {
     loading.value = false
-  }
-}
-
-// 加载班级列表
-const loadClassList = async () => {
-  if (classList.value.length > 0) return
-
-  classLoading.value = true
-  try {
-    const res = await getClassListByCourseId(props.courseId)
-    if (res.code === 200) {
-      classList.value = Array.isArray(res.data) ? res.data : []
-    } else {
-      message.error(res.message || '获取班级列表失败')
-    }
-  } catch (err) {
-    console.error('获取班级列表失败:', err)
-    message.error('获取班级列表失败')
-  } finally {
-    classLoading.value = false
   }
 }
 
@@ -416,7 +404,6 @@ const handleCreate = () => {
     passing_score: undefined,
     start_time: null,
     end_time: null,
-    class_id: undefined,
     paper_id: undefined
   }
   modalVisible.value = true
@@ -436,7 +423,6 @@ const handleEdit = (record) => {
     passing_score: record.passing_score || undefined,
     start_time: record.start_time ? dayjs(record.start_time) : null,
     end_time: record.end_time ? dayjs(record.end_time) : null,
-    class_id: record.class_id || undefined,
     paper_id: record.paper_id || undefined
   }
   modalVisible.value = true
@@ -458,7 +444,7 @@ const handleStartNow = async (record) => {
       description: record.description,
       start_time: now.format('YYYY-MM-DD HH:mm:ss'),
       end_time: record.end_time,
-      class_id: record.class_id,
+      course_id: props.courseId,
       paper_id: record.paper_id
     }
     const res = await updateExam(requestData)
@@ -486,7 +472,7 @@ const handleEndNow = async (record) => {
       description: record.description,
       start_time: record.start_time,
       end_time: now.format('YYYY-MM-DD HH:mm:ss'),
-      class_id: record.class_id,
+      course_id: props.courseId,
       paper_id: record.paper_id
     }
     const res = await updateExam(requestData)
@@ -545,7 +531,7 @@ const handleModalOk = async () => {
       description: formData.value.description,
       start_time: formData.value.start_time ? formData.value.start_time.format('YYYY-MM-DD HH:mm:ss') : null,
       end_time: formData.value.end_time ? formData.value.end_time.format('YYYY-MM-DD HH:mm:ss') : null,
-      class_id: formData.value.class_id,
+      course_id: props.courseId,
       paper_id: formData.value.paper_id
     }
 
@@ -560,10 +546,6 @@ const handleModalOk = async () => {
       message.success(editingRecord.value ? '更新成功' : '考试创建成功')
       modalVisible.value = false
       fetchDataList()
-      // 如果是新建，可以跳转到考试列表页
-      if (!editingRecord.value) {
-        // router.push(`/course/${props.courseId}/exam`)
-      }
     } else {
       message.error(res.message || '操作失败')
     }
@@ -586,13 +568,18 @@ const handleModalCancel = () => {
     passing_score: undefined,
     start_time: null,
     end_time: null,
-    class_id: undefined,
     paper_id: undefined
   }
   // 重置表单验证状态
   if (formRef.value) {
     formRef.value.clearValidate()
   }
+}
+
+function openPublish(record, mode) {
+  publishingRecord.value = record
+  publishDialogMode.value = mode
+  publishVisible.value = true
 }
 
 onMounted(() => {

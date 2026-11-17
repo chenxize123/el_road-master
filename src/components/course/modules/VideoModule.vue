@@ -47,7 +47,7 @@
                 <template #renderItem="{ item }">
                   <a-list-item
                     class="video-list-item"
-                    :class="{ active: currentVideo?.id === item.id, error: item.error }"
+                    :class="{ active: videoId(currentVideo) === videoId(item), error: item.error }"
                     @click="handleSelectVideo(item)"
                   >
                     <div class="item-thumbnail">
@@ -76,6 +76,54 @@
                         </div>
                       </template>
                     </a-list-item-meta>
+                    <a-space
+                      v-if="canManageVideos"
+                      class="video-management-actions"
+                      :size="2"
+                      @click.stop
+                    >
+                      <a-button
+                        type="text"
+                        size="small"
+                        title="上移视频"
+                        aria-label="上移视频"
+                        :loading="savingOrder"
+                        :disabled="savingOrder || deletingVideoId === videoId(item) || videos.indexOf(item) === 0"
+                        @click.stop="moveVideo(item, -1)"
+                      >
+                        <template #icon><ArrowUpOutlined /></template>
+                      </a-button>
+                      <a-button
+                        type="text"
+                        size="small"
+                        title="下移视频"
+                        aria-label="下移视频"
+                        :loading="savingOrder"
+                        :disabled="savingOrder || deletingVideoId === videoId(item) || videos.indexOf(item) === videos.length - 1"
+                        @click.stop="moveVideo(item, 1)"
+                      >
+                        <template #icon><ArrowDownOutlined /></template>
+                      </a-button>
+                      <a-popconfirm
+                        title="确定删除该视频及服务器上的视频文件吗？"
+                        ok-text="删除"
+                        cancel-text="取消"
+                        @confirm="removeVideo(item)"
+                      >
+                        <a-button
+                          type="text"
+                          size="small"
+                          danger
+                          :loading="deletingVideoId === videoId(item)"
+                          :disabled="savingOrder || deletingVideoId !== ''"
+                          title="从当前页面移出"
+                          aria-label="删除视频"
+                          @click.stop
+                        >
+                          <template #icon><DeleteOutlined /></template>
+                        </a-button>
+                      </a-popconfirm>
+                    </a-space>
                   </a-list-item>
                 </template>
               </a-list>
@@ -121,9 +169,16 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { message, Empty } from 'ant-design-vue'
-import { PlayCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons-vue'
+import {
+  ArrowDownOutlined,
+  ArrowUpOutlined,
+  DeleteOutlined,
+  PlayCircleOutlined,
+  ExclamationCircleOutlined
+} from '@ant-design/icons-vue'
 import { useUserStore } from '@/store'
 import { useCourseVideos } from '@/composables/useCourseVideos'
+import { deleteCourseVideoApi, updateCourseVideoOrderApi } from '@/api/course'
 import VideoUploadForm from './VideoUploadForm.vue'
 
 const props = defineProps({
@@ -140,14 +195,95 @@ const props = defineProps({
 const videoRef = ref(null)
 const activeTab = ref('list')
 const userStore = useUserStore()
+const canManageVideos = computed(() => ['admin', 'teacher'].includes(userStore.userInfo?.user_type))
 const canUpload = computed(() => userStore.userInfo?.user_type !== 'visitor')
 const { loading, error, videos, currentVideo, fetchVideos, setCurrentVideo } = useCourseVideos()
+const savingOrder = ref(false)
+const deletingVideoId = ref('')
+
+function videoId(video) {
+  const id = video?.id ?? video?.video_id
+  return id === undefined || id === null ? '' : String(id)
+}
 
 function handleSelectVideo(video) {
   if (video.error) {
     message.warning('该视频暂时无法播放')
   }
   setCurrentVideo(video)
+}
+
+async function moveVideo(video, direction) {
+  const index = videos.value.indexOf(video)
+  const targetIndex = index + direction
+  if (
+    index < 0 ||
+    targetIndex < 0 ||
+    targetIndex >= videos.value.length ||
+    savingOrder.value ||
+    deletingVideoId.value
+  ) return
+  if (videos.value.some(item => !videoId(item))) {
+    message.error('视频列表缺少视频 ID，无法保存排序')
+    return
+  }
+
+  const previousVideos = [...videos.value]
+  const reorderedVideos = [...videos.value]
+  const current = reorderedVideos[index]
+  reorderedVideos[index] = reorderedVideos[targetIndex]
+  reorderedVideos[targetIndex] = current
+  videos.value = reorderedVideos
+
+  savingOrder.value = true
+  try {
+    const response = await updateCourseVideoOrderApi(
+      props.courseId,
+      reorderedVideos.map(videoId)
+    )
+    if (response?.code !== 200) {
+      throw new Error(response?.message || '保存视频顺序失败')
+    }
+    message.success('视频顺序已保存')
+  } catch (saveError) {
+    console.error('保存视频顺序失败:', saveError)
+    videos.value = previousVideos
+    message.error(saveError.message || '保存视频顺序失败')
+  } finally {
+    savingOrder.value = false
+  }
+}
+
+async function removeVideo(video) {
+  const index = videos.value.indexOf(video)
+  if (index < 0 || savingOrder.value || deletingVideoId.value) return
+  const id = videoId(video)
+  if (!id) {
+    message.error('视频列表缺少视频 ID，无法删除')
+    return
+  }
+
+  const wasCurrentVideo = currentVideo.value === video ||
+    videoId(currentVideo.value) === id
+  deletingVideoId.value = id
+  try {
+    const response = await deleteCourseVideoApi(id)
+    if (response?.code !== 200) {
+      throw new Error(response?.message || '删除视频失败')
+    }
+    videos.value.splice(index, 1)
+
+    if (wasCurrentVideo) {
+      videoRef.value?.pause()
+      setCurrentVideo(videos.value[Math.min(index, videos.value.length - 1)] || null)
+    }
+    message.success('视频及服务器文件已删除')
+  } catch (deleteError) {
+    console.error('删除视频失败:', deleteError)
+    message.error(deleteError.message || '删除视频失败')
+  } finally {
+    deletingVideoId.value = ''
+  }
 }
 
 function handleRetry() {
@@ -338,6 +474,11 @@ watch(() => props.loading, (newLoading) => {
 
 .item-meta {
   flex: 1;
+  min-width: 0;
+}
+
+.video-management-actions {
+  flex-shrink: 0;
 }
 
 .item-title {

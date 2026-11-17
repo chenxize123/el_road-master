@@ -20,6 +20,7 @@
             教学资源推荐
           </a-button>
           <KnowledgeGraphButton />
+          <DrawSoftwareButton />
           <a-tooltip title="只有在燕山大学校园网环境下才可使用此功能">
             <span class="employment-tooltip-trigger">
               <a-button
@@ -56,6 +57,7 @@
 
 <script setup>
 import KnowledgeGraphButton from '@/components/common/KnowledgeGraphButton.vue'
+import DrawSoftwareButton from '@/components/common/DrawSoftwareButton.vue'
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import { BookOutlined, RocketOutlined } from '@ant-design/icons-vue'

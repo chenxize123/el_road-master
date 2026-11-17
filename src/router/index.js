@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useUserStore } from '@/store/user'
 
 const routes = [
   {
@@ -10,6 +11,19 @@ const routes = [
       requiresAuth: false,
       permissions: []
     }
+  },
+  {
+    path: '/login',
+    name: 'Login',
+    redirect: to => ({
+      path: '/',
+      query: { ...to.query, showLogin: '1' }
+    })
+  },
+  {
+    path: '/settings',
+    name: 'Settings',
+    redirect: '/profile'
   },
   {
     path: '/profile',
@@ -181,14 +195,22 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   document.title = to.meta.title || '大模型智慧助教系统'
 
-  // 当前首页所有人可访问
-  if (!to.meta.requiresAuth) {
-    next()
-    return
+  if (!to.meta.requiresAuth) return next()
+
+  const userStore = useUserStore()
+  if (!userStore.isAuthenticated) {
+    return next({
+      path: '/',
+      query: { showLogin: '1', redirect: to.fullPath }
+    })
   }
 
-  // 保留权限守卫扩展点
-  next()
+  const role = String(userStore.userInfo?.user_type || '').toLowerCase()
+  if (to.meta.permissions?.length && !to.meta.permissions.includes(role)) {
+    return next('/403')
+  }
+
+  return next()
 })
 
 export default router

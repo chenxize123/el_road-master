@@ -133,7 +133,8 @@ const defaultController = {
   knowledge_graph: true,
   experimental_code_evaluation: true,
   discussion_forum: true,
-  research_planning: true
+  research_planning: true,
+  course_resource: true
 }
 
 function normalizeController(controller = {}) {
@@ -199,6 +200,11 @@ const functionSwitches = computed(() => [
     key: 'knowledge_graph',
     label: '知识图谱',
     field: 'knowledge_graph'
+  },
+  {
+    key: 'course_resource',
+    label: '课程资料',
+    field: 'course_resource'
   },
   {
     key: 'experiment',

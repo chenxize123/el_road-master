@@ -25,23 +25,26 @@ import api from './index'
  *   -H "Authorization: Bearer {token}"
  */
 
-// 获取班级列表 - 根据用户角色决定是否需要分页参数
-export async function getClassListApi(params = {}) {
-  let url = `/class/user_id`
-
-  // 只有当提供了分页参数时才添加查询字符串
-  const queryParams = []
+// 获取班级列表，可按课程筛选并保留现有分页参数
+export function getClassList(params = {}) {
+  const queryParams = new URLSearchParams()
+  if (params.course_id !== undefined && params.course_id !== null && params.course_id !== '') {
+    queryParams.set('course_id', String(params.course_id))
+  }
   if (params.page !== undefined) {
-    queryParams.push(`page=${params.page}`)
+    queryParams.set('page', String(params.page))
   }
   if (params.page_size !== undefined) {
-    queryParams.push(`page_size=${params.page_size}`)
-  }
-  if (queryParams.length > 0) {
-    url += `?${queryParams.join('&')}`
+    queryParams.set('page_size', String(params.page_size))
   }
 
-  return api.get(url)
+  const queryString = queryParams.toString()
+  return api.get(`/class/user_id${queryString ? `?${queryString}` : ''}`)
+}
+
+// 保留旧接口名，避免影响班级管理等已有调用方
+export function getClassListApi(params = {}) {
+  return getClassList(params)
 }
 
 // 创建班级
@@ -85,7 +88,7 @@ export async function getStudentClassListApi(params = {}) {
 
 // 根据课程ID获取班级列表
 export async function getClassListByCourseId(courseId) {
-  return api.get(`/class/course_id?course_id=${courseId}`)
+  return api.get(`/class/course_id?course_id=${encodeURIComponent(String(courseId))}`)
 }
 
 // 获取班级总数
@@ -97,4 +100,3 @@ export async function getClassCountApi() {
 export async function deleteClassApi(classId) {
   return api.delete(`/class/?class_id=${classId}`)
 }
-

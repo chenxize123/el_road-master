@@ -39,6 +39,12 @@
         @cover-uploaded="handleCoverUploaded"
       />
 
+      <CourseTeacherManager
+        v-if="courseInfo && route.params.id"
+        :course-id="route.params.id"
+        :editable="canEditCourseTeacher"
+      />
+
       <!-- 功能导航标签页 -->
       <CourseTabs
         v-model:active-tab="activeTab"
@@ -53,6 +59,14 @@
             :loading="loading"
             :editable="canEditBasicInfo"
             @updated="handleBasicInfoUpdated"
+          />
+        </template>
+
+        <!-- 课程资料模块 -->
+        <template #course-resource>
+          <CourseResourceModule
+            :course-id="route.params.id"
+            :editable="canEditCourseResource"
           />
         </template>
 
@@ -81,15 +95,6 @@
           />
         </template>
 
-        <!-- 课程管理模块 -->
-        <template #management>
-          <ManagementModule
-            :course-id="route.params.id"
-            :course-info="courseInfo"
-            :loading="loading"
-          />
-        </template>
-
         <!-- 题库模块 -->
         <template #question-bank>
           <QuestionBankModule
@@ -110,6 +115,10 @@
             :course-id="route.params.id"
           />
         </template>
+
+        <template #experiment-list>
+          <CourseExperimentModule :course-id="route.params.id" />
+        </template>
       </CourseTabs>
     </div>
   </div>
@@ -126,11 +135,13 @@ import {
 } from '@ant-design/icons-vue'
 import CourseHeader from '@/components/course/CourseHeader.vue'
 import CourseTabs from '@/components/course/CourseTabs.vue'
+import CourseTeacherManager from '@/components/course/CourseTeacherManager.vue'
+import CourseResourceModule from '@/components/course/CourseResourceModule.vue'
 import BasicInfoModule from '@/components/course/modules/BasicInfoModule.vue'
 import VideoModule from '@/components/course/modules/VideoModule.vue'
 import KnowledgeGraphModule from '@/components/course/modules/KnowledgeGraphModule.vue'
 import LessonPlanModule from '@/components/course/modules/LessonPlanModule.vue'
-import ManagementModule from '@/components/course/modules/ManagementModule.vue'
+import CourseExperimentModule from '@/components/course/modules/CourseExperimentModule.vue'
 import QuestionBankModule from '@/components/course/modules/QuestionBankModule.vue'
 import ExamPaperModule from '@/components/course/modules/ExamPaperModule.vue'
 import ExamModule from '@/components/course/modules/ExamModule.vue'
@@ -144,6 +155,12 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const canEditBasicInfo = computed(() =>
+  ['admin', 'teacher'].includes(userStore.userInfo?.user_type)
+)
+const canEditCourseTeacher = computed(() =>
+  ['admin', 'teacher'].includes(userStore.userInfo?.user_type)
+)
+const canEditCourseResource = computed(() =>
   ['admin', 'teacher'].includes(userStore.userInfo?.user_type)
 )
 

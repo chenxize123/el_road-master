@@ -91,35 +91,6 @@
       </div>
     </div>
 
-    <!-- 统计卡片 -->
-    <div class="stats-section">
-      <a-row :gutter="16">
-        <a-col :xs="12" :sm="6">
-          <div class="stat-card">
-            <div class="stat-number">{{ courseInfo.student_count || 0 }}</div>
-            <div class="stat-label">学习学生</div>
-          </div>
-        </a-col>
-        <a-col :xs="12" :sm="6">
-          <div class="stat-card">
-            <div class="stat-number">{{ courseInfo.knowledge_point_count || 0 }}</div>
-            <div class="stat-label">知识点</div>
-          </div>
-        </a-col>
-        <a-col :xs="12" :sm="6">
-          <div class="stat-card">
-            <div class="stat-number">{{ courseInfo.completion_rate || 0 }}%</div>
-            <div class="stat-label">完成率</div>
-          </div>
-        </a-col>
-        <a-col :xs="12" :sm="6">
-          <div class="stat-card">
-            <div class="stat-number">{{ courseInfo.video_count || 0 }}</div>
-            <div class="stat-label">视频数</div>
-          </div>
-        </a-col>
-      </a-row>
-    </div>
   </a-card>
 </template>
 
@@ -136,6 +107,7 @@ import {
   ShareAltOutlined,
   CameraOutlined
 } from '@ant-design/icons-vue'
+import { formatDate } from '@/utils'
 import { getCourseCoverUrlApi, uploadCourseCoverApi } from '@/api/file'
 
 const props = defineProps({
@@ -357,31 +329,6 @@ const handleEdit = () => {
   margin-top: auto;
 }
 
-/* 统计数据区域 */
-.stats-section {
-  padding-top: 24px;
-  border-top: 1px solid #f0f0f0;
-}
-
-.stat-card {
-  text-align: center;
-  padding: 16px;
-  background: #fafafa;
-  border-radius: 8px;
-}
-
-.stat-number {
-  font-size: 24px;
-  font-weight: 700;
-  color: #1890ff;
-  margin-bottom: 4px;
-}
-
-.stat-label {
-  font-size: 12px;
-  color: #8c8c8c;
-}
-
 /* 响应式设计 */
 @media screen and (max-width: 768px) {
   .cover-section {
@@ -427,12 +374,5 @@ const handleEdit = () => {
     grid-template-columns: 1fr;
   }
 
-  .stats-section {
-    .ant-row {
-      .ant-col {
-        margin-bottom: 12px;
-      }
-    }
-  }
 }
 </style>
