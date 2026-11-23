@@ -22,7 +22,13 @@
       <span>{{ connected ? '已连接' : connectionTimedOut ? '连接失败' : '连接中' }}</span>
       <span class="mic-state">{{ micOn ? '语音已开启' : micHint }}</span>
     </div>
-    <p v-if="connectionTimedOut" class="connection-warning" role="alert">连接失败，请在校园网环境下使用。</p>
+    <p v-if="connectionTimedOut" class="connection-warning" role="alert">数字人连接超时。请确认已连接校园网，并按下方说明检查局域网访问权限。</p>
+    <details v-if="allowed" class="access-help">
+      <summary>麦克风或局域网连接失败？查看设置方法</summary>
+      <p><strong>校园网下仍连接失败（Edge）：</strong>先在新标签输入 http://222.30.145.22:8010/embed.js 测试。若能打开，再输入 edge://flags/#local-network-access-check，将“Local Network Access Checks”设为 Enabled（显示权限提示的选项），点击 Relaunch。重启后打开 Edge“设置 → 隐私、搜索和服务 → 网站权限 → 所有权限 → 本地网络访问”，开启“访问前询问”。返回课程页面刷新，弹窗出现时点“允许”。</p>
+      <p><strong>麦克风无法开启：</strong>Chrome 地址栏输入 chrome://flags/#unsafely-treat-insecure-origin-as-secure（Edge 输入 edge://flags/#unsafely-treat-insecure-origin-as-secure）。在文本框填写 http://111.63.183.17:9001，设为 Enabled，点击 Relaunch 重启浏览器。重新打开课程页面，点击地址栏左侧图标 → 网站设置 → 麦克风 → 允许，再刷新并同意权限弹窗。</p>
+      <a href="/digital-human/浏览器访问设置说明.txt" download>下载完整设置说明</a>
+    </details>
     <p v-if="!allowed">请先登录后使用数字人交互。</p>
     <p v-if="inQA && dialogueState === 'listening'" class="speak-indicator" role="status"><span aria-hidden="true">●</span> 你请说</p>
     <p v-if="visibleError" role="alert">{{ visibleError }}</p>
@@ -193,4 +199,5 @@ defineExpose({ pause: () => video.value?.pause() })
 .connection-info{display:flex;align-items:center;gap:8px;padding:12px 14px;color:#c6d5eb;font-size:13px}.connection-dot{width:9px;height:9px;border-radius:50%;background:#eab308;flex-shrink:0}.connection-dot.connected{background:#22c55e;box-shadow:0 0 0 3px #22c55e20}.mic-state{margin-left:8px;color:#a6b7ce}
 .speak-indicator{display:flex;align-items:center;gap:8px;font-weight:600}.speak-indicator span{color:#22c55e}
 .interactive-course-video .connection-warning{color:#fbbf24}
+.access-help{margin:8px 14px;color:#c6d5eb;font-size:13px}.access-help summary{cursor:pointer}.access-help p{padding:0;line-height:1.6}.access-help a{color:#8fc7ff}
 </style>
