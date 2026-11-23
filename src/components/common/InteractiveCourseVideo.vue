@@ -1,17 +1,21 @@
 <template>
   <section class="interactive-course-video">
-    <div ref="stage" class="interactive-stage">
-      <video ref="video" :src="src" playsinline preload="metadata" @error="$emit('error', $event)" @loadedmetadata="metadata" @timeupdate="updateTime" @play="playing = true" @pause="playing = false" @ended="playing = false" />
-      <div v-if="frameUrl" class="human-region" :class="{ visible: inQA || activation }">
-        <iframe ref="frame" :src="frameUrl" title="课程数字人问答" allow="autoplay; microphone; fullscreen" />
+    <div ref="player" class="player-surface">
+      <div ref="stage" class="interactive-stage">
+        <div class="course-picture">
+          <video ref="video" :src="src" playsinline preload="metadata" @error="$emit('error', $event)" @loadedmetadata="metadata" @timeupdate="updateTime" @play="playing = true" @pause="playing = false" @ended="playing = false" />
+          <div v-if="frameUrl" class="human-region" :class="{ visible: inQA || activation }">
+            <iframe ref="frame" :src="frameUrl" title="课程数字人问答" allow="autoplay; microphone; fullscreen" />
+          </div>
+        </div>
       </div>
-    </div>
-    <div class="player-actions">
-      <button type="button" @click="togglePlayback">{{ playing ? '暂停' : '播放' }}</button>
-      <input type="range" aria-label="视频进度" min="0" :max="duration || 1" step="0.1" :value="time" @input="seek" />
-      <span>{{ format(time) }} / {{ format(duration) }}</span>
-      <label><input v-model="muted" type="checkbox" @change="video.muted = muted" />静音</label>
-      <button type="button" @click="fullscreen">全屏</button>
+      <div class="player-actions">
+        <button type="button" @click="togglePlayback">{{ inQA ? '结束对话并继续播放' : playing ? '暂停' : '播放' }}</button>
+        <input type="range" aria-label="视频进度" min="0" :max="duration || 1" step="0.1" :value="time" @input="seek" />
+        <span>{{ format(time) }} / {{ format(duration) }}</span>
+        <label><input v-model="muted" type="checkbox" @change="video.muted = muted" />静音</label>
+        <button type="button" @click="fullscreen">{{ isFullscreen ? '退出全屏' : '全屏' }}</button>
+      </div>
     </div>
     <div v-if="allowed" class="connection-info" role="status">
       <span class="connection-dot" :class="{ connected }" aria-hidden="true"></span>
@@ -35,6 +39,8 @@ defineEmits(['error'])
 const store = useUserStore()
 const allowed = computed(() => store.isAuthenticated && !!store.token)
 const video = ref(null), frame = ref(null), stage = ref(null)
+const player = ref(null), isFullscreen = ref(false)
+function syncFullscreen() { isFullscreen.value = document.fullscreenElement === player.value }
 const connected = ref(false), micOn = ref(false)
 const micHint = ref('正在初始化语音')
 const visibleError = ref('')
@@ -67,7 +73,7 @@ function initialize() {
   if (!allowed.value) return false
   if (!frameUrl.value) {
     const api = new URL(import.meta.env.VITE_DIGITAL_HUMAN_API_BASE || 'http://222.30.145.22:8010', origin).href.replace(/\/$/, '')
-    const params = new URLSearchParams({ server: api, parentOrigin: origin, mic: '1', embedded: '1', fit: 'cover', v: 'course-voice-1' })
+    const params = new URLSearchParams({ server: api, parentOrigin: origin, mic: '1', embedded: '1', fit: 'contain', v: 'course-voice-1' })
     frameUrl.value = `${import.meta.env.BASE_URL}digital-human/video.html?${params}`
     status.value = '正在连接数字人，请允许麦克风。'
     startConnectionTimer()
@@ -121,21 +127,67 @@ function reset() {
   activation.value = false; dialogueState.value = 'idle'; answer.value = ''
   video.value?.pause(); playing.value = false; time.value = 0; duration.value = 0
 }
-function metadata() { duration.value = Number.isFinite(video.value.duration) ? video.value.duration : 0; stage.value.style.aspectRatio = `${video.value.videoWidth || 16}/${video.value.videoHeight || 9}` }
+function metadata() { duration.value = Number.isFinite(video.value.duration) ? video.value.duration : 0; stage.value.style.setProperty('--picture-ratio', (video.value.videoWidth || 16) / (video.value.videoHeight || 9)) }
 function updateTime() { time.value = video.value?.currentTime || 0 }
 function seek(e) { if (video.value) video.value.currentTime = Number(e.target.value) }
-async function togglePlayback() { if (inQA.value) return; if (playing.value) video.value?.pause(); else { try { await video.value?.play() } catch { status.value = '视频播放失败，请重试。' } } }
+async function togglePlayback() { if (inQA.value) return resume(); if (playing.value) video.value?.pause(); else { try { await video.value?.play() } catch { status.value = '视频播放失败，请重试。' } } }
 function format(t) { return `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}` }
-async function fullscreen() { try { if (document.fullscreenElement) await document.exitFullscreen(); else await stage.value.requestFullscreen() } catch { status.value = '当前浏览器不支持全屏。' } }
+async function fullscreen() { try { if (document.fullscreenElement) await document.exitFullscreen(); else await player.value.requestFullscreen() } catch { status.value = '当前浏览器不支持全屏。' } }
 watch(() => props.src, () => { reset(); initialize() })
 watch(allowed, value => { if (!value) reset(); else initialize() })
-onMounted(() => { window.addEventListener('message', receive); initialize() })
-onBeforeUnmount(() => { window.removeEventListener('message', receive); reset() })
+onMounted(() => { document.addEventListener('fullscreenchange', syncFullscreen); window.addEventListener('message', receive); initialize() })
+onBeforeUnmount(() => { document.removeEventListener('fullscreenchange', syncFullscreen); window.removeEventListener('message', receive); reset() })
 defineExpose({ pause: () => video.value?.pause() })
 </script>
 
 <style scoped>
-.interactive-course-video{width:100%;color:inherit}.interactive-stage{position:relative;width:100%;aspect-ratio:16/9;background:#000;overflow:hidden}.interactive-stage>video{display:block;width:100%;height:100%;object-fit:contain}.human-region{position:absolute;inset:0 auto 0 0;width:30%;visibility:hidden;background:#000}.human-region.visible{visibility:visible}.human-region iframe{display:block;width:100%;height:100%;border:0}.player-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0}.player-actions>input[type=range]{flex:1;min-width:100px}button{cursor:pointer;padding:6px 10px}button:disabled{cursor:default;opacity:.5}p{margin:6px 0;font-size:13px;overflow-wrap:anywhere}.answer{white-space:pre-wrap}.interactive-stage:fullscreen{aspect-ratio:auto}
+.interactive-course-video{width:100%;color:inherit}
+.interactive-stage {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  background: #000;
+  overflow: hidden;
+}
+.course-picture {
+  position: relative;
+  width: 100%;
+  aspect-ratio: var(--picture-ratio, 1.77777778);
+}
+.course-picture > video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.human-region {
+  position: absolute;
+  inset: 0 auto 0 0;
+  /* The presenter occupies the left 5/14 of the course frame. */
+  width: calc(100% * 5 / 14);
+  visibility: hidden;
+  background: #000;
+}
+.human-region.visible{visibility:visible}.human-region iframe{display:block;width:100%;height:100%;border:0}.player-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0}.player-actions>input[type=range]{flex:1;min-width:100px}button{cursor:pointer;padding:6px 10px}button:disabled{cursor:default;opacity:.5}p{margin:6px 0;font-size:13px;overflow-wrap:anywhere}.answer{white-space:pre-wrap}
+.player-surface:fullscreen {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+.player-surface:fullscreen .interactive-stage {
+  height: 100%;
+  min-height: 0;
+  container-type: size;
+}
+.player-surface:fullscreen .course-picture {
+  width: min(100cqw, calc(100cqh * var(--picture-ratio, 1.77777778)));
+}
+.player-surface:fullscreen .player-actions {
+  color: #fff;
+}
 
 .interactive-course-video{color:#e6edf7;background:#111b2c;border-radius:10px;overflow:hidden;padding-bottom:12px;box-sizing:border-box}.player-actions{padding:10px 14px}.player-actions{background:#0b1220}.interactive-course-video button{font:inherit;font-size:13px;border:1px solid #465a77;border-radius:6px;background:#243c60;color:#f2f6ff;padding:7px 12px}.interactive-course-video input:not([type=range]):not([type=checkbox]){font:inherit;border:1px solid #465a77;border-radius:6px;padding:7px;background:#18263c;color:#f2f6ff}.interactive-course-video p{padding:0 14px;color:#c6d5eb}.answer{max-height:160px;overflow:auto}.player-actions span{font-size:12px;white-space:nowrap}
 .connection-info{display:flex;align-items:center;gap:8px;padding:12px 14px;color:#c6d5eb;font-size:13px}.connection-dot{width:9px;height:9px;border-radius:50%;background:#eab308;flex-shrink:0}.connection-dot.connected{background:#22c55e;box-shadow:0 0 0 3px #22c55e20}.mic-state{margin-left:8px;color:#a6b7ce}
