@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>数字人视频流</title>
+<style>
+  html, body { margin:0; width:100%; height:100%; background:transparent; overflow:hidden; }
+  #slot { position:absolute; inset:0; }
+  #video { display:block; width:100%; height:100%; object-fit:cover; }
+  #tap { position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+         cursor:pointer; border:0; width:100%; color:#dfe9ff; background:rgba(0,0,0,.34);
+         font:13px/1.6 system-ui,"Microsoft YaHei",sans-serif; }
+  #err { position:absolute; left:0; right:0; bottom:0; padding:7px 10px; display:none;
+         font:12px/1.5 system-ui,"Microsoft YaHei",sans-serif; color:#ffd0a0; background:rgba(0,0,0,.72); }
+</style>
+</head>
+<body>
+<div id="slot"><video id="video" autoplay playsinline muted></video></div>
+<audio id="audio" autoplay playsinline></audio>
+<button id="tap" type="button">点击启用语音与声音</button>
+<div id="err" role="status"></div>
+<script>
+// 配置只作用于这个 iframe，随后加载的 museum 模块共用此地址。
+globalThis.MUSEUM_API_BASE = new URLSearchParams(location.search).get('server') || '';
+</script>
+<script type="module">
+import {DigitalHuman} from './js/digital-human.js?v=3';
+import {MuseumASR} from './js/asr.js?v=mic-permission-6';
+import {MuseumChat} from './js/chat.js';
+import {currentSessionKey, openSession} from './js/session.js';
+import {SpokenSubtitles} from './js/spoken-subtitles.js';
+
+const params = new URLSearchParams(location.search);
+const video = document.getElementById('video');
+const audio = document.getElementById('audio');
+const slot = document.getElementById('slot');
+const tap = document.getElementById('tap');
+const errorBox = document.getElementById('err');
+const micEnabled = params.get('mic') === '1';
+const parentOrigin = params.get('parentOrigin') || (document.referrer ? new URL(document.referrer).origin : location.origin);
+const idleSeconds = Math.max(0, Number(params.get('idle')) || 0);
+// 待机时用的动作状态（对应 --customvideo_config 里的 audiotype），-1 表示不启用
+const IDLE_AUDIO_TYPE = Number(params.get('idletype') ?? 2);
+const delays = [3000, 6000, 12000, 30000];
+let state = 'idle';
+let generation = 0;
+let closed = false;
+let starting = null;
+let micStarting = null;
+let activeAnswer = null;
+let interrupting = Promise.resolve();
+let utteranceActive = false;
+let idleTimer = null;
+let reconnectTimer = null;
+let micRetryTimer = null;
+let reconnectAttempts = 0;
+let micRetryAttempts = 0;
+
+function notify(message) {
+  if (!closed && parent !== window) parent.postMessage(message, parentOrigin);
+}
+
+function report(error) {
+  if (closed || error?.name === 'AbortError') return;
+  const message = error?.message || String(error);
+  errorBox.textContent = message;
+  errorBox.style.display = 'block';
+  notify({dh: 'error', message});
+}
+
+function setState(next) {
+  if (closed) return;
+  clearTimeout(idleTimer);
+  state = next;
+  notify({dh: 'state', state});
+  if (next === 'listening' && idleSeconds) {
+    idleTimer = setTimeout(() => exitQA('超时'), idleSeconds * 1000);
+  }
+}
+
+function scheduleReconnect() {
+  if (closed || reconnectTimer) return;
+  const delay = delays[Math.min(reconnectAttempts++, delays.length - 1)];
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    ensureReady().catch(error => { report(error); scheduleReconnect(); });
+  }, delay);
+}
+
+const human = new DigitalHuman(video, audio, message => {
+  notify({dh: 'status', message});
+  if (message.includes('断开')) {
+    interruptTurn();
+    scheduleReconnect();
+  }
+  if (message.includes('请点击')) tap.style.display = 'flex';
+});
+const chat = new MuseumChat(human);
+const spoken = new SpokenSubtitles((text, speaking) => {
+  if (state === 'idle') return;
+  notify({dh: 'subtitle', text, speaking});
+  if (speaking) setState('answering');
+  else if (!activeAnswer) setState('listening');
+});
+
+async function ensureReady() {
+  if (closed) throw new DOMException('播放器已关闭', 'AbortError');
+  if (starting) return starting;
+  starting = (async () => {
+    if (!currentSessionKey()) await openSession();
+    if (closed) throw new DOMException('播放器已关闭', 'AbortError');
+    if (!human.sessionid) await human.connect();
+    if (closed) { human.disconnect(); throw new DOMException('播放器已关闭', 'AbortError'); }
+    spoken.connect(human.sessionid);
+    reconnectAttempts = 0;
+    // DigitalHuman 在 autoplay 失败时会提示用户点击。隐藏时始终静音。
+    audio.muted = state === 'idle';
+    // 一连上就切到待机帧，之后一直保持。说话时服务端会自动走主形象
+    // （baseasr.py：TTS 音频入队即 type=0），所以这里不需要来回切。
+    human.setAudioType(IDLE_AUDIO_TYPE).catch(report);
+    notify({dh: 'ready', sessionid: human.sessionid});
+  })();
+  try { await starting; }
+  finally { starting = null; }
+}
+
+function interruptTurn() {
+  generation++;
+  spoken.setTurn(null);
+  // 先同步 abort 当前流，再等待所有取消请求完成，下一问才可以发送。
+  const previous = interrupting;
+  const cancel = chat.interrupt({force: true});
+  interrupting = Promise.allSettled([previous, cancel]).then(results => {
+    if (results[1].status === 'rejected') throw results[1].reason;
+  });
+  interrupting.catch(report);
+  return interrupting;
+}
+
+function playAudio() {
+  video.play().catch(() => { tap.style.display = 'flex'; });
+  audio.play().then(() => { tap.style.display = 'none'; }).catch(() => { tap.style.display = 'flex'; });
+}
+
+function enterQA(word = '等一下') {
+  if (closed || state !== 'idle') return;
+  slot.style.visibility = 'visible';
+  audio.muted = false;
+  errorBox.style.display = 'none';
+  setState('listening');
+  notify({dh: 'trigger', kind: 'pause', word});
+  playAudio();
+  ensureReady().catch(error => { report(error); scheduleReconnect(); });
+  if (micEnabled) startMic().catch(report);
+}
+
+function exitQA(word = '继续讲课') {
+  if (closed || state === 'idle') return;
+  // 立即静音并恢复课程。取消失败会回传错误，旧回答不再更新界面。
+  setState('idle');
+  audio.muted = true;
+  slot.style.visibility = 'hidden';
+  tap.style.display = 'none';
+  utteranceActive = false;
+  interruptTurn();
+  notify({dh: 'trigger', kind: 'resume', word});
+}
+
+// 只把完整的恢复指令当成“继续”，避免“继续教育是什么”以及半句误触。
+function command(text) {
+  const value = String(text || '').trim();
+  const compact = value.replace(/[\s，。！？、；：,.!?;:"“”‘’]/g, '')
+    .replace(/^(?:(?:老师|好的|那么|现在|可以|嗯|好|那|请))+/, '')
+    .replace(/[吧啊呀哦呢]+$/, '');
+  const resumePattern = /^(?:你|您)?(?:请)?(?:继续(?:讲课|上课|播放(?:课程|视频)?|讲|说)?|接着(?:讲|说|播放)?|恢复(?:播放|课程|讲课)|返回课程|回到课程|退出(?:问答|对话)|结束(?:问答|对话)|不用回答了|我明白了|没有问题了)$/;
+  if (resumePattern.test(compact)) return {kind: 'resume', word: value};
+  // ASR may accumulate an activation phrase and the following command in one turn.
+  const pause = compact.match(/^(?:你|您)?(等一下|等一等|等等|稍等一下|稍等|停一下|暂停一下|暂停播放|暂停课程|暂停|先停一下|先停|打断一下|我有个问题|我有一个问题|我想提问|我要提问|我想问一下|请教一下|进入问答|开始问答)(.*)$/s);
+  if (pause) {
+    const rest = pause[2].trim();
+    if (resumePattern.test(rest)) return {kind: 'resume', word: value};
+    return {kind: 'pause', word: pause[1], rest};
+  }
+  return null;
+}
+
+async function askQuestion(text) {
+  const question = String(text || '').trim();
+  if (!question || closed) return;
+  if (command(question)?.kind === 'resume') { exitQA(question); return; }
+  if (state === 'idle') enterQA();
+  const pending = interruptTurn();
+  const version = generation;
+  setState('thinking');
+  try {
+    await pending;
+    await ensureReady();
+    if (closed || version !== generation || state === 'idle') return;
+    const turnId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+    spoken.setTurn(turnId);
+    notify({dh: 'question', text: question});
+    const job = chat.ask(question, answer => {
+      if (!closed && version === generation) notify({dh: 'answer', text: answer, final: false});
+    }, turnId);
+    activeAnswer = job;
+    try {
+      const answer = await job;
+      if (!closed && version === generation) notify({dh: 'answer', text: answer, final: true});
+    } finally {
+      if (activeAnswer === job) activeAnswer = null;
+    }
+  } catch (error) {
+    if (version === generation) report(error);
+  } finally {
+    if (!closed && version === generation && state !== 'idle') {
+      setState(spoken.isSpeaking ? 'answering' : 'listening');
+    }
+  }
+}
+
+function feedText(text, final = true) {
+  if (closed) return;
+  const recognized = String(text || '').trim();
+  if (!recognized) return;
+  notify({dh: 'transcript', text: recognized, final});
+  const trigger = command(recognized);
+  if (trigger) console.log('[DH command]', {text: recognized, final, kind: trigger.kind, state});
+  if (trigger?.kind === 'pause') {
+    enterQA(trigger.word);
+    if (final && trigger.rest) askQuestion(trigger.rest);
+    return;
+  }
+  if (final && trigger?.kind === 'resume') { exitQA(trigger.word); return; }
+  if (state === 'idle') return;
+  if (!final && recognized.length >= 2 && !utteranceActive) {
+    utteranceActive = true;
+    interruptTurn();
+    setState('listening');
+  }
+  if (final) askQuestion(recognized);
+}
+
+function retryMic() {
+  if (closed || !micEnabled || micRetryTimer) return;
+  const delay = delays[Math.min(micRetryAttempts++, delays.length - 1)];
+  micRetryTimer = setTimeout(() => {
+    micRetryTimer = null;
+    startMic().catch(report);
+  }, delay);
+}
+
+const asr = new MuseumASR(
+  text => feedText(text, false),
+  text => { utteranceActive = false; feedText(text, true); },
+  message => {
+    notify({dh: 'status', message});
+    if (message.includes('正在听')) {
+      micRetryAttempts = 0;
+      notify({dh: 'mic', on: true});
+    } else if (message.includes('失败') || message.includes('断开')) {
+      report(message);
+      retryMic();
+    }
+  },
+  text => {
+    if (command(text)?.kind !== 'resume') return false;
+    utteranceActive = false;
+    feedText(text, true);
+    return true;
+  },
+);
+
+async function startMic() {
+  if (!micEnabled || closed || asr.recording) return;
+  if (micStarting) return micStarting;
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    const message = '麦克风无法启用：当前页面需要通过 HTTPS 或 localhost 访问，请使用 HTTPS 网站。';
+    notify({dh: 'mic', on: false, error: true, message});
+    throw new Error(message);
+  }
+  // AudioContext 可能等待用户点击。将提示显示在实际 iframe 内供点击恢复。
+  const activationTimer = setInterval(() => {
+    if (asr.audioContext?.state === 'suspended') {
+      tap.style.display = 'flex';
+      notify({dh: 'activation', message: '请点击数字人画面启用语音'});
+    }
+  }, 1000);
+  notify({dh: 'mic', on: false, message: '正在申请麦克风并连接语音识别'});
+  micStarting = asr.start();
+  try { await micStarting; }
+  catch (error) {
+    notify({dh: 'mic', on: false, error: true, message: error.message});
+    if (!/权限|麦克风|安全|HTTPS/.test(error.message)) retryMic();
+    throw error;
+  } finally {
+    clearInterval(activationTimer);
+    micStarting = null;
+    if (closed) asr.stop();
+  }
+}
+
+function activate() {
+  if (closed) return;
+  playAudio();
+  asr.audioContext?.resume().catch(report);
+  if (micEnabled) startMic().catch(report);
+}
+tap.addEventListener('click', activate);
+video.addEventListener('click', activate);
+
+window.addEventListener('message', event => {
+  if (event.source !== parent || event.origin !== parentOrigin) return;
+  const data = event.data;
+  if (!data || typeof data !== 'object') return;
+  switch (data.dh) {
+    case 'show': case 'enter': enterQA(data.word); break;
+    case 'hide': case 'exit': exitQA(data.word); break;
+    case 'ask': askQuestion(data.text); break;
+    case 'text': feedText(data.text); break;
+    case 'stop': interruptTurn(); if (state !== 'idle') setState('listening'); break;
+    case 'mute': audio.muted = true; break;
+    case 'unmute': if (state !== 'idle') { audio.muted = false; activate(); } break;
+    case 'diag': notify({dh: 'diag', info: {
+      state, sessionid: human.sessionid, connection: human.pc?.connectionState,
+      ice: human.pc?.iceConnectionState, videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight, hasStream: !!video.srcObject,
+      paused: video.paused, muted: audio.muted, mic: asr.recording,
+      api: globalThis.MUSEUM_API_BASE || location.origin,
+    }}); break;
+  }
+});
+
+window.addEventListener('pagehide', () => {
+  closed = true;
+  generation++;
+  clearTimeout(idleTimer);
+  clearTimeout(reconnectTimer);
+  clearTimeout(micRetryTimer);
+  chat.controller?.abort();
+  asr.stop();
+  spoken.disconnect();
+  human.disconnect();
+});
+
+for (const name of ['w', 'h']) {
+  const value = params.get(name);
+  if (value) slot.style[name === 'w' ? 'width' : 'height'] = /^\d+$/.test(value) ? `${value}px` : value;
+}
+video.style.objectFit = params.get('fit') === 'contain' ? 'contain' : 'cover';
+audio.muted = true;
+if (params.get('embedded') === '1') slot.style.visibility = 'hidden';
+notify({dh: 'boot', qa: 'museum', mic: micEnabled});
+// Ask permission independently of session and WebRTC readiness.
+if (micEnabled) startMic().catch(report);
+ensureReady().then(() => {
+  if (params.get('autoenter') === '1') enterQA();
+  if (params.get('autoask')) askQuestion(params.get('autoask'));
+}).catch(error => { report(error); scheduleReconnect(); });
+</script>
+</body>
+</html>

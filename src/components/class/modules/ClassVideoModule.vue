@@ -81,13 +81,12 @@
             </div>
             <template v-else>
               <div class="video-wrapper">
-                <video
-                  ref="videoRef"
-                  class="video-element"
-                  :src="currentVideo.playUrl"
-                  controls
-                  @error="handleVideoError"
-                ></video>
+                <InteractiveCourseVideo
+                    ref="videoRef"
+                    :key="currentVideo.playUrl"
+                    :src="currentVideo.playUrl"
+                    @error="handleVideoError"
+                  />
               </div>
               <div class="video-details">
                 <h3 class="detail-title">{{ currentVideo.title }}</h3>
@@ -117,6 +116,7 @@
 </template>
 
 <script setup>
+import InteractiveCourseVideo from '@/components/common/InteractiveCourseVideo.vue'
 import { ref, watch } from 'vue'
 import { message, Empty } from 'ant-design-vue'
 import { PlayCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons-vue'
@@ -532,4 +532,8 @@ watch(() => props.loading, (newLoading) => {
     display: none;
   }
 }
+
+.video-main { display: block; height: auto; max-height: 100%; overflow: auto; }
+.player-container { display: block; flex: none; height: auto; }
+.video-wrapper { display: block; flex: none; min-height: 0; height: auto; overflow: visible; background: transparent; }
 </style>
