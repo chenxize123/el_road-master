@@ -36,7 +36,7 @@
       row-key="id"
       :pagination="{ pageSize: 10, showSizeChanger: false }"
       :locale="{ emptyText: '暂无讨论' }"
-      :scroll="{ x: 820 }"
+      :scroll="{ x: 900 }"
       @expand="handleExpand"
     >
       <template #bodyCell="{ column, record }">
@@ -46,8 +46,16 @@
           </a-button>
         </template>
 
-        <template v-else-if="column.key === 'zl_class'">
-          {{ record.zl_class || '-' }}
+        <template v-else-if="column.key === 'time_range'">
+          <div class="time-range">
+            <span>{{ formatDateTime(record.start_time) }}</span>
+            <span class="time-separator">至</span>
+            <span>{{ formatDateTime(record.end_time) }}</span>
+          </div>
+        </template>
+
+        <template v-else-if="column.key === 'status'">
+          <a-tag :color="getStatusColor(record)">{{ getStatusText(record) }}</a-tag>
         </template>
 
         <template v-else-if="column.key === 'create_by'">
@@ -57,7 +65,7 @@
         <template v-else-if="column.key === 'actions'">
           <a-space>
             <a-button type="link" size="small" @click="toggleDiscussion(record)">
-              {{ isExpanded(record) ? '收起' : '查看讨论' }}
+              {{ isExpanded(record) ? '收起' : '进入讨论' }}
             </a-button>
             <a-popconfirm
               v-if="isTeacherOrAdmin"
@@ -79,39 +87,74 @@
           <div class="discussion-summary">
             <div class="summary-header">
               <h3>{{ record.topic || '-' }}</h3>
-              <a-button
-                v-if="canUseAIFeature"
-                type="primary"
-                size="small"
-                :loading="summaryLoading"
-                @click="handleSummaryDiscussion"
-              >
-                <template #icon><ThunderboltOutlined /></template>
-                AI总结
-              </a-button>
             </div>
             <div class="summary-meta">
-              <a-tag v-if="record.zl_class" color="blue">
-                {{ record.zl_class }}
+              <a-tag v-if="record.zl_class" color="blue">{{ record.zl_class }}</a-tag>
+              <a-tag v-if="record.create_by" color="default">创建人：{{ record.create_by }}</a-tag>
+              <a-tag :color="getStatusColor(record)">{{ getStatusText(record) }}</a-tag>
+              <a-tag v-if="record.duration_minutes" color="purple">
+                时长 {{ record.duration_minutes }} 分钟
               </a-tag>
-              <a-tag v-if="record.create_by" color="default">
-                创建人：{{ record.create_by }}
+              <a-tag v-if="getGroupConfigText(record)" color="cyan">
+                {{ getGroupConfigText(record) }}
               </a-tag>
             </div>
           </div>
 
+          <div class="group-section">
+            <div class="section-header">
+              <div>
+                <h4>{{ isTeacherOrAdmin ? '分组情况' : '我所在的小组' }}</h4>
+                <span v-if="groups.length">{{ groups.length }} 个小组，实时查看各小组讨论</span>
+                <span v-else>暂无分组信息</span>
+              </div>
+            </div>
+            <a-spin :spinning="groupLoading">
+              <a-empty v-if="groups.length === 0" description="暂无分组信息" />
+              <template v-else>
+                <a-radio-group
+                  v-if="isTeacherOrAdmin"
+                  v-model:value="activeGroupId"
+                  button-style="solid"
+                  class="group-radio"
+                  @change="handleGroupChange"
+                >
+                  <a-radio-button v-for="group in groups" :key="group.id" :value="group.id">
+                    第{{ group.group_no }}组（{{ group.member_count }}人）
+                  </a-radio-button>
+                </a-radio-group>
+                <div class="group-title-text" v-else>
+                  第{{ activeGroup?.group_no }}组（{{ activeGroup?.member_count || 0 }}人）
+                </div>
+                <div class="group-members">
+                  <a-tag v-for="member in activeGroupMembers" :key="member.user_id" color="blue">
+                    {{ member.user_name }}
+                  </a-tag>
+                </div>
+              </template>
+            </a-spin>
+          </div>
+
+          <a-alert
+            v-if="isDiscussionEnded(record)"
+            type="info"
+            show-icon
+            class="discussion-alert"
+            message="讨论已截止，当前仅可查看历史内容，不能继续发言"
+          />
+
           <div class="evaluation-section">
             <div class="section-header">
               <div>
-                <h4>讨论评分</h4>
-                <span v-if="evaluationExpanded">{{ discussionEvaluations.length }} 位同学</span>
-                <span v-else>点击后查看评分明细</span>
+                <h4>讨论评价</h4>
+                <span v-if="evaluationExpanded">参与度 / 内容质量 / 认知深度</span>
+                <span v-else>点击后查看班级、小组{{ isTeacherOrAdmin ? '与个人' : '及个人' }}评价</span>
               </div>
               <div class="evaluation-actions">
                 <a-statistic
-                  v-if="evaluationExpanded"
-                  title="平均总分"
-                  :value="averageTotalScore"
+                  v-if="evaluationExpanded && evaluationSummary"
+                  title="班级平均总分"
+                  :value="evaluationSummary.class_evaluation.total_score"
                   :precision="1"
                   suffix="分"
                   class="average-score"
@@ -121,10 +164,10 @@
                   :loading="evaluationLoading"
                   @click="toggleDiscussionEvaluations"
                 >
-                  {{ evaluationExpanded ? '收起评分' : '查看评分' }}
+                  {{ evaluationExpanded ? '收起评价' : '查看评价' }}
                 </a-button>
                 <a-button
-                  v-if="evaluationExpanded"
+                  v-if="evaluationExpanded && isTeacherOrAdmin"
                   size="small"
                   type="primary"
                   :loading="evaluationExporting"
@@ -141,42 +184,90 @@
               <a-alert
                 v-if="evaluationError"
                 class="discussion-alert"
-                message="加载讨论评分失败"
+                message="加载讨论评价失败"
                 :description="evaluationError"
                 type="error"
                 show-icon
               >
                 <template #action>
-                  <a-button size="small" danger @click="fetchDiscussionEvaluations">重试</a-button>
+                  <a-button size="small" danger @click="fetchEvaluationData">重试</a-button>
                 </template>
               </a-alert>
 
-              <a-table
-                v-else
-                :columns="evaluationColumns"
-                :data-source="discussionEvaluations"
-                :loading="evaluationLoading"
-                row-key="id"
-                size="small"
-                :pagination="false"
-                :locale="{ emptyText: '暂无评分数据' }"
-                :scroll="{ x: 680, y: 260 }"
-                class="evaluation-table"
-              >
-                <template #bodyCell="{ column, record }">
-                  <template v-if="column.key === 'user'">
-                    <span class="student-name">{{ record.user || '-' }}</span>
+              <template v-else>
+                <a-spin :spinning="evaluationLoading">
+                  <div v-if="evaluationSummary" class="evaluation-cards">
+                    <div class="evaluation-card">
+                      <div class="evaluation-card-title">班级整体</div>
+                      <div class="evaluation-card-body">
+                        <span>参与度 {{ formatScore(evaluationSummary.class_evaluation.engagement_score) }}</span>
+                        <span>内容质量 {{ formatScore(evaluationSummary.class_evaluation.quality_score) }}</span>
+                        <span>认知深度 {{ formatScore(evaluationSummary.class_evaluation.cognitive_score) }}</span>
+                      </div>
+                      <div class="evaluation-card-footer">
+                        综合 {{ formatScore(evaluationSummary.class_evaluation.total_score) }} 分
+                      </div>
+                    </div>
+
+                    <div
+                      v-for="group in evaluationSummary.groups"
+                      :key="group.group_id"
+                      class="evaluation-card"
+                    >
+                      <div class="evaluation-card-title">
+                        第{{ group.group_no }}组（{{ group.member_count }}人）
+                      </div>
+                      <div class="evaluation-card-body">
+                        <span>参与度 {{ formatScore(group.engagement_score) }}</span>
+                        <span>内容质量 {{ formatScore(group.quality_score) }}</span>
+                        <span>认知深度 {{ formatScore(group.cognitive_score) }}</span>
+                      </div>
+                      <div class="evaluation-card-footer">
+                        综合 {{ formatScore(group.total_score) }} 分
+                      </div>
+                    </div>
+
+                    <div v-if="evaluationSummary.my_evaluation" class="evaluation-card evaluation-card-self">
+                      <div class="evaluation-card-title">我的评价</div>
+                      <div class="evaluation-card-body">
+                        <span>参与度 {{ formatScore(evaluationSummary.my_evaluation.engagement_score) }}</span>
+                        <span>内容质量 {{ formatScore(evaluationSummary.my_evaluation.quality_score) }}</span>
+                        <span>认知深度 {{ formatScore(evaluationSummary.my_evaluation.cognitive_score) }}</span>
+                      </div>
+                      <div class="evaluation-card-footer">
+                        综合 {{ formatScore(evaluationSummary.my_evaluation.total_score) }} 分
+                      </div>
+                    </div>
+                  </div>
+                </a-spin>
+
+                <a-table
+                  v-if="isTeacherOrAdmin"
+                  :columns="evaluationColumns"
+                  :data-source="discussionEvaluations"
+                  :loading="evaluationLoading"
+                  row-key="id"
+                  size="small"
+                  :pagination="false"
+                  :locale="{ emptyText: '暂无评分数据' }"
+                  :scroll="{ x: 680, y: 260 }"
+                  class="evaluation-table"
+                >
+                  <template #bodyCell="{ column, record: evaluationRecord }">
+                    <template v-if="column.key === 'user'">
+                      <span class="student-name">{{ evaluationRecord.user || '-' }}</span>
+                    </template>
+                    <template v-else-if="column.key === 'total_score'">
+                      <a-tag :color="getScoreColor(evaluationRecord.total_score)" class="score-tag">
+                        {{ formatScore(evaluationRecord.total_score) }} 分
+                      </a-tag>
+                    </template>
+                    <template v-else-if="column.key.endsWith('_score')">
+                      {{ formatScore(evaluationRecord[column.key]) }}
+                    </template>
                   </template>
-                  <template v-else-if="column.key === 'total_score'">
-                    <a-tag :color="getScoreColor(record.total_score)" class="score-tag">
-                      {{ formatScore(record.total_score) }} 分
-                    </a-tag>
-                  </template>
-                  <template v-else-if="column.key.endsWith('_score')">
-                    {{ formatScore(record[column.key]) }}
-                  </template>
-                </template>
-              </a-table>
+                </a-table>
+              </template>
             </div>
           </div>
 
@@ -193,14 +284,12 @@
             </template>
           </a-alert>
 
-          <div class="content-list">
-            <a-spin v-if="contentLoading" tip="加载讨论内容中..." />
-
+          <div ref="messageScrollRef" class="message-scroll">
+            <a-spin v-if="contentLoading && discussionContents.length === 0" tip="加载讨论内容中..." />
             <a-empty
-              v-else-if="discussionContents.length === 0"
+              v-else-if="mainContents.length === 0"
               description="暂无讨论内容"
             />
-
             <a-list v-else :data-source="mainContents" item-layout="vertical">
               <template #renderItem="{ item }">
                 <a-list-item class="content-item">
@@ -215,17 +304,10 @@
                           {{ getUserInitial(item.user) }}
                         </a-avatar>
                         <div class="content-author">{{ item.user || '未知用户' }}</div>
+                        <a-tag v-if="isAiReply(item)" color="blue" class="reply-tag">AI</a-tag>
                       </div>
                       <div class="content-meta">
                         <span>{{ formatDateTime(item.create_time) }}</span>
-                        <a-button
-                          v-if="canUseAIFeature"
-                          type="link"
-                          size="small"
-                          @click="handleAnalyzeContent(item)"
-                        >
-                          AI分析
-                        </a-button>
                         <a-popconfirm
                           v-if="canDeleteContent(item)"
                           title="确定要删除这条讨论内容吗？"
@@ -245,7 +327,12 @@
                         </a-popconfirm>
                       </div>
                     </div>
-                    <div class="content-text">{{ item.content || '-' }}</div>
+                    <div
+                      v-if="isAiReply(item)"
+                      class="content-text markdown-body"
+                      v-html="renderMarkdown(item.content)"
+                    ></div>
+                    <div v-else class="content-text">{{ item.content || '-' }}</div>
                   </div>
 
                   <div v-if="hasReplies(item.id) || replyingToId === item.id" class="replies-section">
@@ -260,7 +347,7 @@
                         {{ isRepliesExpanded(item.id) ? '收起' : `查看${getRepliesCount(item.id)}条回复` }}
                       </a-button>
                       <a-button
-                        v-if="canUseAIFeature && replyingToId !== item.id"
+                        v-if="canSpeak(record) && replyingToId !== item.id"
                         type="link"
                         size="small"
                         class="reply-btn"
@@ -273,7 +360,7 @@
                     <div v-if="replyingToId === item.id" class="reply-input-area">
                       <a-textarea
                         v-model:value="replyInput"
-                        placeholder="请输入回复内容（输入 @子路 可召唤AI助教）"
+                        placeholder="请输入回复内容"
                         :rows="3"
                         :maxlength="1000"
                         show-count
@@ -334,7 +421,7 @@
                           </div>
                           <div
                             v-if="isAiReply(replyItem)"
-                            :class="['content-text', 'markdown-body']"
+                            class="content-text markdown-body"
                             v-html="renderMarkdown(replyItem.content)"
                           ></div>
                           <div v-else class="content-text">{{ replyItem.content || '-' }}</div>
@@ -347,10 +434,10 @@
             </a-list>
           </div>
 
-          <div class="reply-form">
+          <div v-if="canSpeak(record)" class="reply-form">
             <a-textarea
               v-model:value="replyForm.content"
-              placeholder="请输入讨论内容"
+              placeholder="请输入讨论内容，与同组同学交流"
               :rows="4"
               :maxlength="1000"
               show-count
@@ -390,63 +477,70 @@
             placeholder="请输入讨论主题"
             :maxlength="100"
             show-count
-            @pressEnter="handleSubmit"
           />
         </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <a-modal
-      v-model:open="analyzeModalVisible"
-      title="AI分析"
-      :confirm-loading="analyzeSubmitting"
-      @ok="handleConfirmAnalyze"
-      @cancel="handleCancelAnalyze"
-      destroy-on-close
-    >
-      <div class="selected-content-preview">
-        <div class="preview-label">选中的讨论内容：</div>
-        <div class="preview-text">{{ selectedContentForAnalyze?.content }}</div>
-      </div>
-      <a-form layout="vertical" style="margin-top: 16px">
-        <a-form-item label="请输入你的需求">
-          <a-textarea
-            v-model:value="analyzeIntent"
-            placeholder="例如：分析这个观点的合理性，或者补充相关的论点"
-            :rows="4"
-            :maxlength="500"
-            show-count
+        <a-form-item label="开始时间" name="start_time" required>
+          <a-date-picker
+            v-model:value="formData.start_time"
+            show-time
+            format="YYYY-MM-DD HH:mm"
+            placeholder="请选择讨论开始时间"
+            style="width: 100%"
+            :disabled-date="disabledStartDate"
           />
         </a-form-item>
+        <a-form-item label="持续时长（分钟）" name="duration_minutes" required>
+          <a-input-number
+            v-model:value="formData.duration_minutes"
+            :min="1"
+            :max="600"
+            :step="5"
+            style="width: 100%"
+            placeholder="例如：40"
+          />
+        </a-form-item>
+        <a-form-item label="分组方式" name="group_mode">
+          <a-radio-group v-model:value="formData.group_mode">
+            <a-radio value="size">按每组人数分组</a-radio>
+            <a-radio value="count">按小组数量分组</a-radio>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item
+          v-if="formData.group_mode === 'size'"
+          label="每组人数"
+          name="group_size"
+        >
+          <a-input-number
+            v-model:value="formData.group_size"
+            :min="2"
+            :max="20"
+            style="width: 100%"
+            placeholder="例如：4"
+          />
+        </a-form-item>
+        <a-form-item v-else label="小组数量" name="group_count">
+          <a-input-number
+            v-model:value="formData.group_count"
+            :min="2"
+            :max="20"
+            style="width: 100%"
+            placeholder="例如：6"
+          />
+        </a-form-item>
+        <a-alert
+          type="info"
+          show-icon
+          message="发布后将立即对本班学生随机分组，每个讨论独立分组"
+        />
       </a-form>
-    </a-modal>
-
-    <a-modal
-      v-model:open="resultModalVisible"
-      :title="resultModalTitle"
-      :confirm-loading="resultLoading"
-      @ok="handleCopyResult"
-      @cancel="handleCloseResult"
-      ok-text="复制内容"
-      cancel-text="关闭"
-      width="600px"
-      destroy-on-close
-    >
-      <div v-if="resultLoading" class="result-loading">
-        <a-spin size="large" />
-        <div class="loading-text">AI思考中...</div>
-      </div>
-      <div v-else class="result-content">
-        <div class="markdown-body" v-html="renderedResult"></div>
-      </div>
     </a-modal>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { PlusOutlined, ThunderboltOutlined, DownloadOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, DownloadOutlined } from '@ant-design/icons-vue'
 import * as XLSX from 'xlsx'
 import { useUserStore } from '@/store'
 import { getAvatarUrlApi } from '@/api/file'
@@ -460,8 +554,12 @@ import {
   getDiscussionContentsByDiscussionId,
   getDiscussionsByClassId,
   getDiscussionEvaluationByDiscussionId,
-  analyzeDiscussionContent
+  getDiscussionEvaluationSummary,
+  getDiscussionGroups
 } from '@/api/discussion'
+
+// 讨论内容轮询间隔：固定 3 秒
+const POLL_INTERVAL = 3000
 
 const props = defineProps({
   classId: {
@@ -483,7 +581,12 @@ const discussions = ref([])
 const modalVisible = ref(false)
 const formRef = ref(null)
 const formData = ref({
-  topic: ''
+  topic: '',
+  start_time: null,
+  duration_minutes: 40,
+  group_mode: 'size',
+  group_size: 4,
+  group_count: null
 })
 
 const expandedRowKeys = ref([])
@@ -494,15 +597,14 @@ const discussionContents = ref([])
 const evaluationLoading = ref(false)
 const evaluationError = ref('')
 const discussionEvaluations = ref([])
+const evaluationSummary = ref(null)
 const evaluationExpanded = ref(false)
 const evaluationExporting = ref(false)
 const replySubmitting = ref(false)
 const deletingContentId = ref('')
 const avatarUrlMap = ref({})
 const avatarLoadingMap = ref({})
-const replyForm = ref({
-  content: ''
-})
+const replyForm = ref({ content: '' })
 
 const mainContents = ref([])
 const repliesMap = ref({})
@@ -510,20 +612,13 @@ const expandedReplies = ref(new Set())
 const replyingToId = ref(null)
 const replyInput = ref('')
 
-const canUseAIFeature = computed(() => {
-  return userStore.isAuthenticated === true
-})
+const groups = ref([])
+const activeGroupId = ref(null)
+const groupLoading = ref(false)
+const messageScrollRef = ref(null)
+const nowTs = ref(Date.now())
 
-const summaryLoading = ref(false)
-const analyzeModalVisible = ref(false)
-const analyzeSubmitting = ref(false)
-const selectedContentForAnalyze = ref(null)
-const analyzeIntent = ref('')
-const resultModalVisible = ref(false)
-const resultModalTitle = ref('AI分析结果')
-const resultLoading = ref(false)
-const aiResult = ref('')
-const renderedResult = ref('')
+let pollTimer = null
 
 const isTeacherOrAdmin = computed(() => {
   const role = userStore.userInfo?.user_type
@@ -542,32 +637,41 @@ const currentUserNames = computed(() => {
     .map(normalizeName)
 })
 
+const activeGroup = computed(() => {
+  return groups.value.find(group => String(group.id) === String(activeGroupId.value)) || null
+})
+
+const activeGroupMembers = computed(() => activeGroup.value?.members || [])
+
 const columns = computed(() => {
   return [
     {
       title: '讨论主题',
       dataIndex: 'topic',
       key: 'topic',
-      width: 320
+      width: 280
     },
     {
-      title: '所属班级',
-      dataIndex: 'zl_class',
-      key: 'zl_class',
-      width: 240,
-      responsive: ['md']
+      title: '讨论时间',
+      key: 'time_range',
+      width: 300
+    },
+    {
+      title: '状态',
+      key: 'status',
+      width: 100
     },
     {
       title: '创建人',
       dataIndex: 'create_by',
       key: 'create_by',
-      width: 120,
+      width: 110,
       responsive: ['sm']
     },
     {
       title: '操作',
       key: 'actions',
-      width: 170,
+      width: 160,
       fixed: 'right'
     }
   ]
@@ -608,27 +712,18 @@ const evaluationColumns = computed(() => {
       dataIndex: 'total_score',
       key: 'total_score',
       width: 120,
-      sorter: (a, b) => Number(a.total_score || 0) - Number(b.total_score || 0),
-      defaultSortOrder: 'descend'
+      sorter: (a, b) => Number(a.total_score || 0) - Number(b.total_score || 0)
     }
   ]
-})
-
-const averageTotalScore = computed(() => {
-  const scores = discussionEvaluations.value
-    .map(item => Number(item.total_score))
-    .filter(score => Number.isFinite(score))
-
-  if (scores.length === 0) return 0
-
-  return scores.reduce((sum, score) => sum + score, 0) / scores.length
 })
 
 const formRules = {
   topic: [
     { required: true, message: '请输入讨论主题', trigger: 'blur' },
     { max: 100, message: '讨论主题不能超过 100 个字符', trigger: 'blur' }
-  ]
+  ],
+  start_time: [{ required: true, message: '请选择讨论开始时间', trigger: 'change' }],
+  duration_minutes: [{ required: true, message: '请输入持续时长', trigger: 'blur' }]
 }
 
 function normalizeName(value) {
@@ -640,7 +735,13 @@ function normalizeDiscussion(item) {
     id: item?.id === undefined || item?.id === null ? '' : String(item.id),
     zl_class: item?.zl_class || '',
     topic: item?.topic || '',
-    create_by: item?.create_by || ''
+    create_by: item?.create_by || '',
+    start_time: item?.start_time || '',
+    end_time: item?.end_time || '',
+    duration_minutes: item?.duration_minutes ?? null,
+    group_size: item?.group_size ?? null,
+    group_count: item?.group_count ?? null,
+    status: item?.status || ''
   }
 }
 
@@ -652,6 +753,7 @@ function normalizeDiscussionContent(item) {
     discussion: item?.discussion || '',
     content: item?.content || '',
     create_time: item?.create_time || '',
+    group_id: item?.group_id === undefined || item?.group_id === null ? null : String(item.group_id),
     quoted_content_id: item?.quoted_content_id === undefined || item?.quoted_content_id === null
       ? null
       : String(item.quoted_content_id)
@@ -667,6 +769,22 @@ function normalizeDiscussionEvaluation(item) {
     quality_score: Number(item?.quality_score || 0),
     cognitive_score: Number(item?.cognitive_score || 0),
     total_score: Number(item?.total_score || 0)
+  }
+}
+
+function normalizeGroup(item) {
+  return {
+    id: item?.id === undefined || item?.id === null ? '' : String(item.id),
+    discussion_id: item?.discussion_id === undefined || item?.discussion_id === null ? '' : String(item.discussion_id),
+    group_no: Number(item?.group_no || 0),
+    member_count: Number(item?.member_count || 0),
+    members: Array.isArray(item?.members)
+      ? item.members.map(member => ({
+        user_id: String(member.user_id),
+        user_name: member.user_name || '',
+        avatar: member.avatar || ''
+      }))
+      : []
   }
 }
 
@@ -758,6 +876,53 @@ function getScoreColor(value) {
   if (score >= 60) return 'blue'
   if (score > 0) return 'orange'
   return 'default'
+}
+
+function disabledStartDate(current) {
+  return current && current < new Date(new Date().setHours(0, 0, 0, 0))
+}
+
+function getGroupConfigText(record) {
+  if (record?.group_size) return `每组 ${record.group_size} 人`
+  if (record?.group_count) return `${record.group_count} 个小组`
+  return ''
+}
+
+function isDiscussionEnded(record) {
+  // 依赖 nowTs 触发状态随时间推进而更新
+  void nowTs.value
+  const target = record || selectedDiscussion.value
+  if (!target) return false
+  if (target.status === 'ended') return true
+  if (!target.end_time) return false
+  const end = new Date(target.end_time)
+  if (Number.isNaN(end.getTime())) return false
+  return end.getTime() <= Date.now()
+}
+
+function isDiscussionNotStarted(record) {
+  void nowTs.value
+  if (!record?.start_time) return false
+  const start = new Date(record.start_time)
+  if (Number.isNaN(start.getTime())) return false
+  return start.getTime() > Date.now()
+}
+
+function getStatusText(record) {
+  if (isDiscussionEnded(record)) return '已截止'
+  if (isDiscussionNotStarted(record)) return '未开始'
+  return '进行中'
+}
+
+function getStatusColor(record) {
+  if (isDiscussionEnded(record)) return 'default'
+  if (isDiscussionNotStarted(record)) return 'orange'
+  return 'green'
+}
+
+function canSpeak(record) {
+  if (isTeacherOrAdmin.value) return false
+  return !isDiscussionEnded(record)
 }
 
 function getSafeFileName(value) {
@@ -857,7 +1022,6 @@ async function handleSubmitReply() {
 
     if (res.code === 200) {
       message.success('回复成功')
-      // 自动展开该主发言的回复列表
       const repliedId = String(replyingToId.value)
       replyingToId.value = null
       replyInput.value = ''
@@ -892,6 +1056,13 @@ async function fetchDiscussions() {
       discussions.value = Array.isArray(res.data)
         ? res.data.map(normalizeDiscussion)
         : []
+      // 同步当前展开讨论的最新状态
+      if (selectedDiscussion.value?.id) {
+        const latest = discussions.value.find(item => item.id === selectedDiscussion.value.id)
+        if (latest) {
+          selectedDiscussion.value = latest
+        }
+      }
       return
     }
 
@@ -906,6 +1077,19 @@ async function fetchDiscussions() {
   }
 }
 
+function applyContents(contents) {
+  discussionContents.value = contents
+  const { mainContents: groupedMain, repliesMap: groupedReplies } = groupDiscussionContents(contents)
+  mainContents.value = groupedMain
+  repliesMap.value = groupedReplies
+  fetchContentAvatars(contents)
+}
+
+function getContentsSignature(contents) {
+  if (contents.length === 0) return '0'
+  return `${contents.length}-${contents[contents.length - 1]?.id || ''}`
+}
+
 async function fetchDiscussionContents() {
   if (!selectedDiscussion.value?.id) {
     discussionContents.value = []
@@ -918,16 +1102,13 @@ async function fetchDiscussionContents() {
   contentError.value = ''
 
   try {
-    const res = await getDiscussionContentsByDiscussionId(selectedDiscussion.value.id)
+    const res = await getDiscussionContentsByDiscussionId(selectedDiscussion.value.id, activeGroupId.value)
     if (res.code === 200) {
       const contents = Array.isArray(res.data)
         ? res.data.map(normalizeDiscussionContent)
         : []
-      discussionContents.value = contents
-      const { mainContents: groupedMain, repliesMap: groupedReplies } = groupDiscussionContents(contents)
-      mainContents.value = groupedMain
-      repliesMap.value = groupedReplies
-      fetchContentAvatars(contents)
+      applyContents(contents)
+      await scrollToLatest()
       return
     }
 
@@ -944,14 +1125,128 @@ async function fetchDiscussionContents() {
   }
 }
 
-async function fetchDiscussionEvaluations() {
+function getScrollElement() {
+  const el = messageScrollRef.value
+  if (!el) return null
+  return el.$el || el
+}
+
+async function scrollToLatest() {
+  await nextTick()
+  const el = getScrollElement()
+  if (el) {
+    el.scrollTop = el.scrollHeight
+  }
+}
+
+/**
+ * 静默轮询：每 3 秒拉取本组消息，只追加新消息并保持用户当前浏览位置。
+ */
+async function pollDiscussionContents() {
+  nowTs.value = Date.now()
+
+  if (!selectedDiscussion.value?.id || contentLoading.value) return
+
+  const el = getScrollElement()
+  const prevScrollTop = el ? el.scrollTop : 0
+  const wasAtBottom = el ? (el.scrollHeight - el.scrollTop - el.clientHeight < 40) : true
+
+  try {
+    const res = await getDiscussionContentsByDiscussionId(selectedDiscussion.value.id, activeGroupId.value)
+    if (res.code !== 200) return
+
+    const contents = Array.isArray(res.data)
+      ? res.data.map(normalizeDiscussionContent)
+      : []
+
+    if (getContentsSignature(contents) === getContentsSignature(discussionContents.value)) {
+      return
+    }
+
+    applyContents(contents)
+    await nextTick()
+    const scrollEl = getScrollElement()
+    if (!scrollEl) return
+    // 看到底部时跟随最新消息，否则停留在上次所看消息的位置
+    scrollEl.scrollTop = wasAtBottom ? scrollEl.scrollHeight : prevScrollTop
+  } catch (err) {
+    console.error('轮询讨论内容失败:', err)
+  }
+}
+
+function startPolling() {
+  stopPolling()
+  pollTimer = setInterval(pollDiscussionContents, POLL_INTERVAL)
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+async function fetchGroups() {
   if (!selectedDiscussion.value?.id) {
-    discussionEvaluations.value = []
+    groups.value = []
+    activeGroupId.value = null
     return
   }
 
-  evaluationLoading.value = true
-  evaluationError.value = ''
+  groupLoading.value = true
+
+  try {
+    const res = await getDiscussionGroups(selectedDiscussion.value.id)
+    if (res.code === 200) {
+      const groupList = Array.isArray(res.data) ? res.data.map(normalizeGroup) : []
+      groups.value = groupList
+      const existed = groupList.some(group => String(group.id) === String(activeGroupId.value))
+      if (!existed) {
+        activeGroupId.value = groupList[0]?.id ?? null
+      }
+      return
+    }
+
+    throw new Error(res.message || '获取分组信息失败')
+  } catch (err) {
+    console.error('获取分组信息失败:', err)
+    groups.value = []
+    activeGroupId.value = null
+  } finally {
+    groupLoading.value = false
+  }
+}
+
+async function handleGroupChange() {
+  await fetchDiscussionContents()
+  await scrollToLatest()
+}
+
+async function fetchEvaluationSummary() {
+  if (!selectedDiscussion.value?.id) {
+    evaluationSummary.value = null
+    return
+  }
+
+  try {
+    const res = await getDiscussionEvaluationSummary(selectedDiscussion.value.id)
+    if (res.code === 200) {
+      evaluationSummary.value = res.data || null
+      return
+    }
+    throw new Error(res.message || '获取讨论评价失败')
+  } catch (err) {
+    console.error('获取讨论评价失败:', err)
+    evaluationSummary.value = null
+    evaluationError.value = err.message || '获取讨论评价失败'
+  }
+}
+
+async function fetchDiscussionEvaluations() {
+  if (!isTeacherOrAdmin.value || !selectedDiscussion.value?.id) {
+    discussionEvaluations.value = []
+    return
+  }
 
   try {
     const res = await getDiscussionEvaluationByDiscussionId(selectedDiscussion.value.id)
@@ -965,8 +1260,18 @@ async function fetchDiscussionEvaluations() {
     throw new Error(res.message || '获取讨论评分失败')
   } catch (err) {
     console.error('获取讨论评分失败:', err)
-    evaluationError.value = err.message || '获取讨论评分失败'
     discussionEvaluations.value = []
+    evaluationError.value = err.message || '获取讨论评分失败'
+  }
+}
+
+async function fetchEvaluationData() {
+  evaluationLoading.value = true
+  evaluationError.value = ''
+
+  try {
+    await fetchEvaluationSummary()
+    await fetchDiscussionEvaluations()
   } finally {
     evaluationLoading.value = false
   }
@@ -980,8 +1285,8 @@ async function toggleDiscussionEvaluations() {
 
   evaluationExpanded.value = true
 
-  if (discussionEvaluations.value.length === 0 && !evaluationError.value) {
-    await fetchDiscussionEvaluations()
+  if (!evaluationSummary.value && !evaluationError.value) {
+    await fetchEvaluationData()
   }
 }
 
@@ -1020,7 +1325,12 @@ async function handleExportEvaluationExcel() {
 
 function handleCreate() {
   formData.value = {
-    topic: ''
+    topic: '',
+    start_time: null,
+    duration_minutes: 40,
+    group_mode: 'size',
+    group_size: 4,
+    group_count: null
   }
   modalVisible.value = true
 
@@ -1042,18 +1352,42 @@ async function handleSubmit() {
     return
   }
 
+  if (!formData.value.start_time) {
+    message.warning('请选择讨论开始时间')
+    return
+  }
+
+  if (!formData.value.duration_minutes) {
+    message.warning('请输入持续时长')
+    return
+  }
+
+  const isBySize = formData.value.group_mode === 'size'
+  if (isBySize && !formData.value.group_size) {
+    message.warning('请输入每组人数')
+    return
+  }
+
+  if (!isBySize && !formData.value.group_count) {
+    message.warning('请输入小组数量')
+    return
+  }
+
   saving.value = true
 
   try {
     const res = await createDiscussion({
       class_id: props.classId,
-      topic
+      topic,
+      start_time: formData.value.start_time.format('YYYY-MM-DD HH:mm:ss'),
+      duration_minutes: formData.value.duration_minutes,
+      group_size: isBySize ? formData.value.group_size : null,
+      group_count: isBySize ? null : formData.value.group_count
     })
 
     if (res.code === 200) {
-      message.success('讨论创建成功')
+      message.success('讨论创建成功，已完成随机分组')
       modalVisible.value = false
-      formData.value.topic = ''
       await fetchDiscussions()
       return
     }
@@ -1069,7 +1403,6 @@ async function handleSubmit() {
 
 function handleCancel() {
   modalVisible.value = false
-  formData.value.topic = ''
 
   if (formRef.value) {
     formRef.value.clearValidate()
@@ -1106,7 +1439,17 @@ async function handleExpand(expanded, record) {
     evaluationExpanded.value = false
     evaluationError.value = ''
     discussionEvaluations.value = []
+    evaluationSummary.value = null
+    groups.value = []
+    activeGroupId.value = null
+    discussionContents.value = []
+    mainContents.value = []
+    repliesMap.value = {}
+    expandedReplies.value = new Set()
+
+    await fetchGroups()
     await fetchDiscussionContents()
+    startPolling()
     return
   }
 
@@ -1118,16 +1461,20 @@ function toggleDiscussion(record) {
 }
 
 function closeExpandedDiscussion() {
+  stopPolling()
   expandedRowKeys.value = []
   selectedDiscussion.value = null
   contentError.value = ''
   evaluationError.value = ''
   discussionContents.value = []
   discussionEvaluations.value = []
+  evaluationSummary.value = null
   evaluationExpanded.value = false
   mainContents.value = []
   repliesMap.value = {}
   expandedReplies.value = new Set()
+  groups.value = []
+  activeGroupId.value = null
   replyingToId.value = null
   replyInput.value = ''
   replyForm.value.content = ''
@@ -1135,6 +1482,11 @@ function closeExpandedDiscussion() {
 
 async function handleCreateContent() {
   if (!selectedDiscussion.value?.id) return
+
+  if (isDiscussionEnded(selectedDiscussion.value)) {
+    message.warning('讨论已截止，无法继续发言')
+    return
+  }
 
   const content = replyForm.value.content.trim()
   if (!content) {
@@ -1202,119 +1554,14 @@ function renderMarkdown(text) {
   return DOMPurify.sanitize(marked.parse(text))
 }
 
-async function handleSummaryDiscussion() {
-  if (!selectedDiscussion.value?.id) return
-
-  resultModalTitle.value = 'AI总结结果'
-  resultModalVisible.value = true
-  resultLoading.value = true
-  aiResult.value = ''
-  renderedResult.value = ''
-  console.log('开始获取AI总结...')
-  console.log(selectedDiscussion)
-  try {
-    const res = await analyzeDiscussionContent({
-      discussion_id: selectedDiscussion.value.id,
-      intent: '总结本讨论的全部内容'
-    })
-
-    if (res.code === 200) {
-      aiResult.value = res.data?.result || res.data?.content || res.data || '暂无结果'
-      renderedResult.value = renderMarkdown(aiResult.value)
-    } else {
-      message.error(res.message || '获取AI总结失败')
-      resultModalVisible.value = false
-    }
-  } catch (err) {
-    console.error('AI总结失败:', err)
-    message.error(err.message || '获取AI总结失败')
-    resultModalVisible.value = false
-  } finally {
-    resultLoading.value = false
-  }
-}
-
-function handleAnalyzeContent(item) {
-  selectedContentForAnalyze.value = item
-  analyzeIntent.value = ''
-  analyzeModalVisible.value = true
-}
-
-function handleCancelAnalyze() {
-  analyzeModalVisible.value = false
-  selectedContentForAnalyze.value = null
-  analyzeIntent.value = ''
-}
-
-async function handleConfirmAnalyze() {
-  const intent = analyzeIntent.value.trim()
-  if (!intent) {
-    message.warning('请输入你的需求')
-    return
-  }
-
-  analyzeSubmitting.value = true
-
-  try {
-    analyzeModalVisible.value = false
-
-    resultModalTitle.value = 'AI分析结果'
-    resultModalVisible.value = true
-    resultLoading.value = true
-    aiResult.value = ''
-    renderedResult.value = ''
-
-    const res = await analyzeDiscussionContent({
-      discussion_id: selectedDiscussion.value.id,
-      intent: intent,
-      discussion_content: selectedContentForAnalyze.value.content,
-      discussion_content_id: selectedContentForAnalyze.value.id
-    })
-
-    if (res.code === 200) {
-      aiResult.value = res.data?.result || res.data?.content || res.data || '暂无结果'
-      renderedResult.value = renderMarkdown(aiResult.value)
-    } else {
-      message.error(res.message || '获取AI分析失败')
-      resultModalVisible.value = false
-    }
-  } catch (err) {
-    console.error('AI分析失败:', err)
-    message.error(err.message || '获取AI分析失败')
-    resultModalVisible.value = false
-  } finally {
-    analyzeSubmitting.value = false
-    resultLoading.value = false
-    selectedContentForAnalyze.value = null
-    analyzeIntent.value = ''
-  }
-}
-
-function handleCopyResult() {
-  if (!aiResult.value) return
-
-  navigator.clipboard.writeText(aiResult.value).then(() => {
-    message.success('复制成功')
-    fetchDiscussionContents()
-  }).catch(() => {
-    message.error('复制失败')
-  })
-}
-
-function handleCloseResult() {
-  resultModalVisible.value = false
-  resultLoading.value = false
-  aiResult.value = ''
-  renderedResult.value = ''
-  fetchDiscussionContents()
-}
-
 watch(() => props.classId, () => {
-  fetchDiscussions()
   closeExpandedDiscussion()
+  fetchDiscussions()
 })
 
 onMounted(fetchDiscussions)
+
+onBeforeUnmount(stopPolling)
 </script>
 
 <style scoped>
@@ -1362,6 +1609,18 @@ onMounted(fetchDiscussions)
   word-break: break-word;
 }
 
+.time-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: #595959;
+  font-size: 13px;
+}
+
+.time-separator {
+  color: #bfbfbf;
+}
+
 .discussion-detail {
   display: flex;
   flex-direction: column;
@@ -1385,6 +1644,33 @@ onMounted(fetchDiscussions)
 }
 
 .summary-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.group-section {
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+}
+
+.group-radio {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.group-title-text {
+  margin-bottom: 12px;
+  color: #262626;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.group-members {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -1431,6 +1717,49 @@ onMounted(fetchDiscussions)
   gap: 12px;
 }
 
+.evaluation-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.evaluation-card {
+  padding: 12px 14px;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+}
+
+.evaluation-card-self {
+  background: #f0f7ff;
+  border-color: #bfdbfe;
+}
+
+.evaluation-card-title {
+  margin-bottom: 8px;
+  color: #262626;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.evaluation-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #595959;
+  font-size: 13px;
+}
+
+.evaluation-card-footer {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #e8e8e8;
+  color: #1677ff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .evaluation-table {
   margin-top: 4px;
 }
@@ -1446,11 +1775,14 @@ onMounted(fetchDiscussions)
   text-align: center;
 }
 
-.content-list {
+.message-scroll {
+  max-height: 460px;
   min-height: 160px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
-.content-list :deep(.ant-spin) {
+.message-scroll :deep(.ant-spin) {
   display: flex;
   justify-content: center;
   padding: 40px 0;
@@ -1615,46 +1947,6 @@ onMounted(fetchDiscussions)
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 12px;
-}
-
-.selected-content-preview {
-  padding: 12px;
-  background: #fafafa;
-  border-radius: 6px;
-  border: 1px solid #f0f0f0;
-}
-
-.preview-label {
-  font-size: 12px;
-  color: #8c8c8c;
-  margin-bottom: 4px;
-}
-
-.preview-text {
-  font-size: 14px;
-  color: #262626;
-  line-height: 1.6;
-}
-
-.result-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 40px 0;
-  gap: 16px;
-}
-
-.loading-text {
-  color: #595959;
-  font-size: 14px;
-}
-
-.result-content {
-  min-height: 120px;
-  max-height: 400px;
-  overflow-y: auto;
-  padding: 4px;
 }
 
 .markdown-body {

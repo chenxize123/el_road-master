@@ -34,12 +34,17 @@ import api from './index'
 
 /**
  * 创建讨论
- * @param {{ class_id: string | number, topic: string }} data
+ * @param {{ class_id: string | number, topic: string, start_time?: string, duration_minutes?: number, group_size?: number, group_count?: number }} data
  */
 export function createDiscussion(data) {
   return api.post('/discussion/', {
     class_id: String(data.class_id),
-    topic: data.topic
+    topic: data.topic,
+    ...(data.start_time && { start_time: data.start_time }),
+    ...(data.duration_minutes !== undefined && data.duration_minutes !== null
+      && { duration_minutes: data.duration_minutes }),
+    ...(data.group_size !== undefined && data.group_size !== null && { group_size: data.group_size }),
+    ...(data.group_count !== undefined && data.group_count !== null && { group_count: data.group_count })
   })
 }
 
@@ -83,9 +88,29 @@ export function deleteDiscussionContent(discussionContentId) {
 /**
  * 查看某个讨论下的所有讨论内容
  * @param {string | number} discussionId
+ * @param {string | number} [groupId] 教师端查看指定小组时传入
  */
-export function getDiscussionContentsByDiscussionId(discussionId) {
-  return api.get(`/discussion/content/discussion_id?discussion_id=${encodeURIComponent(String(discussionId))}`)
+export function getDiscussionContentsByDiscussionId(discussionId, groupId) {
+  const groupQuery = groupId !== undefined && groupId !== null && groupId !== ''
+    ? `&group_id=${encodeURIComponent(String(groupId))}`
+    : ''
+  return api.get(`/discussion/content/discussion_id?discussion_id=${encodeURIComponent(String(discussionId))}${groupQuery}`)
+}
+
+/**
+ * 查询某个讨论的分组情况（学生仅返回本人所在小组）
+ * @param {string | number} discussionId
+ */
+export function getDiscussionGroups(discussionId) {
+  return api.get(`/discussion/group/discussion_id?discussion_id=${encodeURIComponent(String(discussionId))}`)
+}
+
+/**
+ * 查询讨论评价摘要（班级 / 小组 / 个人）
+ * @param {string | number} discussionId
+ */
+export function getDiscussionEvaluationSummary(discussionId) {
+  return api.get(`/discussion/evaluation/summary?discussion_id=${encodeURIComponent(String(discussionId))}`)
 }
 
 /**
