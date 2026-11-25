@@ -1,8 +1,8 @@
-import {API} from './site-config.js';
+import {API, course} from './site-config.js';
 import {diag} from './diagnostics.js';
 
 // 通用问答启用独立会话，刷新时不续用旧展厅对话。
-const STORAGE_KEY = 'digital_human_general_session_key_v1';
+const STORAGE_KEY = course ? `digital_human_video_session_v1:${course}` : 'digital_human_general_session_key_v1';
 let sessionKey = sessionStorage.getItem(STORAGE_KEY) || '';
 let pendingOpen = null;
 

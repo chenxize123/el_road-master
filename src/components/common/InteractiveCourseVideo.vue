@@ -40,7 +40,10 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useUserStore } from '@/store'
-const props = defineProps({ src: { type: String, required: true } })
+const props = defineProps({
+  src: { type: String, required: true },
+  videoId: { type: [String, Number], default: '' },
+})
 defineEmits(['error'])
 const store = useUserStore()
 const allowed = computed(() => store.isAuthenticated && !!store.token)
@@ -80,6 +83,8 @@ function initialize() {
   if (!frameUrl.value) {
     const api = new URL(import.meta.env.VITE_DIGITAL_HUMAN_API_BASE || 'http://222.30.145.22:8010', origin).href.replace(/\/$/, '')
     const params = new URLSearchParams({ server: api, parentOrigin: origin, mic: '1', embedded: '1', fit: 'contain', v: 'course-voice-1' })
+    const videoId = String(props.videoId ?? '')
+    if (/^[A-Za-z0-9_-]+$/.test(videoId)) params.set('course', videoId)
     frameUrl.value = `${import.meta.env.BASE_URL}digital-human/video.html?${params}`
     status.value = '正在连接数字人，请允许麦克风。'
     startConnectionTimer()

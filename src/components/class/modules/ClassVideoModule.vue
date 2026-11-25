@@ -83,7 +83,8 @@
               <div class="video-wrapper">
                 <InteractiveCourseVideo
                     ref="videoRef"
-                    :key="currentVideo.playUrl"
+                    :key="`${currentVideo.id ?? currentVideo.video_id ?? ''}:${currentVideo.playUrl}`"
+                    :video-id="currentVideo.id ?? currentVideo.video_id"
                     :src="currentVideo.playUrl"
                     @error="handleVideoError"
                   />

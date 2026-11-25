@@ -1,4 +1,4 @@
-import {API} from './site-config.js';
+import {API, course} from './site-config.js';
 import {diag} from './diagnostics.js';
 import {currentSessionKey, openSession} from './session.js';
 
@@ -47,6 +47,7 @@ export class MuseumChat {
         sessionid: this.human.sessionid,
         session_key: currentSessionKey(),
         user_text: text,
+        ...(course ? {course} : {}),
         request_id: requestId,
       }),
     });

@@ -19,6 +19,7 @@ export const RTC_CONFIG = {
 
 // video.html 在加载模块前配置服务地址。museum.html 默认仍使用同源接口。
 const apiBase = String(globalThis.MUSEUM_API_BASE || '').replace(/\/+$/, '');
+export const course = new URLSearchParams(globalThis.location?.search).get('course') || '';
 const endpoints = {
   offer: '/offer',
   open: '/session/open',
