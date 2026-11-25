@@ -371,7 +371,7 @@
               <a-checkbox
                 v-for="(opt, index) in choiceForm.options"
                 :key="index"
-                :value="opt"
+                :value="index"
               >
                 {{ String.fromCharCode(65 + index) }}
               </a-checkbox>
@@ -380,7 +380,7 @@
               <a-radio
                 v-for="(opt, index) in choiceForm.options"
                 :key="index"
-                :value="opt"
+                :value="index"
               >
                 {{ String.fromCharCode(65 + index) }}
               </a-radio>
@@ -950,14 +950,16 @@ function extractOptionText(optionStr) {
 
 // 查找答案在选项中的索引
 function findAnswerIndices(chooseList, answer) {
-  if (!chooseList || !answer) return []
+  if (!Array.isArray(chooseList) || answer == null || answer === '') return []
 
   const answerList = Array.isArray(answer) ? answer : [answer]
   const indices = []
 
   answerList.forEach(ans => {
-    const idx = chooseList.findIndex(c => c === ans)
-    if (idx !== -1) {
+    const idx = typeof ans === 'number'
+      ? ans
+      : chooseList.findIndex(option => option === extractOptionText(String(ans)))
+    if (idx >= 0 && idx < chooseList.length && !indices.includes(idx)) {
       indices.push(idx)
     }
   })
@@ -984,14 +986,10 @@ function addGeneratedToQuestionBank() {
     choiceForm.stem = q.question || ''
     choiceForm.options = (q.choose || []).map(opt => extractOptionText(opt))
 
-    // 直接保存答案文本（去掉 "A." 前缀）
-    if (Array.isArray(q.answer)) {
-      // 多选题
-      choiceForm.answer = q.answer.map(ans => extractOptionText(ans))
-    } else {
-      // 单选题
-      choiceForm.answer = extractOptionText(q.answer)
-    }
+    const answerIndices = findAnswerIndices(choiceForm.options, q.answer)
+    choiceForm.answer = q.type === 'multiple_choice'
+      ? answerIndices
+      : answerIndices[0] ?? ''
   } else if (q.type === 'true_or_false') {
     judgmentForm.stem = q.question || ''
     judgmentForm.answer = q.answer !== undefined ? q.answer : true
@@ -1172,31 +1170,27 @@ const handleEditQuestion = (record) => {
 
       // 处理答案格式：兼容新旧格式
       if (Array.isArray(q.answer)) {
-        if (q.answer.length > 0 && typeof q.answer[0] === 'number') {
-          // 旧格式：索引数组，转换成文本数组
-          choiceForm.answer = q.answer
-            .map(idx => choiceForm.options[idx])
-            .filter(Boolean)
-        } else {
-          // 新格式：文本数组
-          choiceForm.answer = q.answer
-        }
+        const answerIndices = findAnswerIndices(choiceForm.options, q.answer)
+        choiceForm.answer = record.type_ === 3
+          ? answerIndices
+          : answerIndices[0] ?? ''
       } else if (typeof q.answer === 'number') {
-        // 旧格式：单个索引，转换成文本
-        choiceForm.answer = choiceForm.options[q.answer] || ''
+        // 兼容旧格式中的选项索引
+        choiceForm.answer = q.answer >= 0 && q.answer < choiceForm.options.length
+          ? q.answer
+          : record.type_ === 3 ? [] : ''
       } else if (typeof q.answer === 'string') {
         // 新格式：单个文本，或者带"A."前缀的文本
         const cleanAnswer = extractOptionText(q.answer)
-        // 检查是否在选项中，如果不在，尝试通过包含关系匹配
-        if (choiceForm.options.includes(cleanAnswer)) {
-          choiceForm.answer = cleanAnswer
-        } else {
-          // 尝试模糊匹配
-          const matchedOption = choiceForm.options.find(opt =>
-            opt.includes(cleanAnswer) || cleanAnswer.includes(opt)
+        let answerIndex = choiceForm.options.findIndex(option => option === cleanAnswer)
+        if (answerIndex === -1 && cleanAnswer) {
+          answerIndex = choiceForm.options.findIndex(option =>
+            option && (option.includes(cleanAnswer) || cleanAnswer.includes(option))
           )
-          choiceForm.answer = matchedOption || ''
         }
+        choiceForm.answer = record.type_ === 3
+          ? answerIndex === -1 ? [] : [answerIndex]
+          : answerIndex
       } else {
         choiceForm.answer = record.type_ === 3 ? [] : ''
       }
@@ -1236,17 +1230,17 @@ const handleDeleteQuestion = async (questionId) => {
 }
 
 // 题型切换
-const handleTypeChange = () => {
-  resetQuestionForms()
+const handleTypeChange = (type) => {
+  resetQuestionForms(type)
 }
 
 // 重置表单
-const resetQuestionForms = () => {
-  questionForm.type_ = editingQuestion.value ? editingQuestion.value.type_ : 0
+const resetQuestionForms = (type = editingQuestion.value ? editingQuestion.value.type_ : 0) => {
+  questionForm.type_ = type
   choiceForm.stem = ''
   choiceForm.options = ['', '']
   // 根据题型设置答案初始值：多选题用数组，单选题用字符串
-  choiceForm.answer = questionForm.type_ === 3 ? [] : ''
+  choiceForm.answer = type === 3 ? [] : ''
   judgmentForm.stem = ''
   judgmentForm.answer = true
   fillBlankForm.stem = ''
@@ -1264,15 +1258,16 @@ const addOption = () => {
   }
 }
 const removeOption = (index) => {
-  const removedOption = choiceForm.options[index]
   choiceForm.options.splice(index, 1)
-  // 同时移除答案中的对应选项
+  // Keep selected option indices aligned with the updated options list.
   if (Array.isArray(choiceForm.answer)) {
-    // 多选题：过滤掉被删除的选项
-    choiceForm.answer = choiceForm.answer.filter(a => a !== removedOption)
-  } else if (choiceForm.answer === removedOption) {
-    // 单选题：如果被删除的是选中的答案，清空答案
+    choiceForm.answer = choiceForm.answer
+      .filter(answerIndex => answerIndex !== index)
+      .map(answerIndex => answerIndex > index ? answerIndex - 1 : answerIndex)
+  } else if (choiceForm.answer === index) {
     choiceForm.answer = ''
+  } else if (choiceForm.answer > index) {
+    choiceForm.answer -= 1
   }
 }
 
@@ -1308,10 +1303,13 @@ const removeGeneratedScoringPoint = (index) => {
 const buildQuestionData = () => {
   let question = {}
   if (questionForm.type_ === 2 || questionForm.type_ === 3) {
+    const answer = Array.isArray(choiceForm.answer)
+      ? choiceForm.answer.map(index => choiceForm.options[index]).filter(option => option !== undefined)
+      : choiceForm.options[choiceForm.answer] ?? ''
     question = {
       question: choiceForm.stem,
       choose: choiceForm.options,
-      answer: choiceForm.answer,
+      answer,
       analysis: currentQuestionAnalysis.value || ''
     }
   } else if (questionForm.type_ === 1) {
@@ -1354,7 +1352,10 @@ const handleQuestionModalOk = async () => {
       message.warning('请填写完整的选项')
       return
     }
-    if (choiceForm.answer.length === 0) {
+    const hasAnswer = Array.isArray(choiceForm.answer)
+      ? choiceForm.answer.length > 0
+      : Number.isInteger(choiceForm.answer)
+    if (!hasAnswer) {
       message.warning('请选择正确答案')
       return
     }

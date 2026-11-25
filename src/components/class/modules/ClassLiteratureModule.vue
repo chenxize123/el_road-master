@@ -114,7 +114,7 @@
       <template #description>
         <div style="display: flex; align-items: center; gap: 8px;">
           <a-spin size="small" />
-          <span>正在调查中，已等待 {{ formatSearchElapsed(searchElapsedSeconds) }}。检索可能需要数分钟，请保持页面打开并等待接口返回。</span>
+          <span>正在调查中，已等待 {{ formatSearchElapsed(searchElapsedSeconds) }}。检索可能需要数分钟，请保持页面停留在当前页。并且确保当前使用的是校园网，否则可能导致生成失败。</span>
         </div>
       </template>
     </a-alert>
